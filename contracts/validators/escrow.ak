@@ -10,18 +10,22 @@
 ////   Resolve — arbitrator + one party sig; distribute per resolution
 ////   AutoRelease — slot >= submitted_at + auto_release_deadline; builder sig only
 ////   AutoRefund  — slot >= selected_at + auto_refund_deadline; client sig only
-////   ArbitratorTimeout — slot >= dispute_raised_at + 30d; auto-resolves
+////   ArbitratorTimeout — slot >= dispute_raised_at + 14d; auto-resolves
 ////
 //// Cross-cutting checks (every redeemer):
 ////   - output value matches expected (defends double-satisfaction)
 ////   - datum size <= max_datum_bytes (defends ex-units griefing)
 
-use aiken/collection/list
 use cardano/assets.{PolicyId}
-use cardano/transaction.{InlineDatum, OutputReference, Transaction}
+use cardano/transaction.{OutputReference, Transaction}
+use chaintask/escrow_logic.{
+  validate_builder_withdraw, validate_refund, validate_release, validate_select,
+  validate_submit, validate_update,
+}
+use chaintask/tx_helpers.{find_global_config}
 use chaintask/types.{
-  Apply, ArbitratorTimeout, AutoRefund, AutoRelease, Dispute, EscrowDatum,
-  EscrowRedeemer, GlobalConfig, Refund, Release, Resolve, Select, Submit, Update,
+  Apply, ArbitratorTimeout, AutoRefund, AutoRelease, BuilderWithdraw, Dispute,
+  EscrowDatum, EscrowRedeemer, Refund, Release, Resolve, Select, Submit, Update,
 }
 
 /// The validator is parameterized by the Admin Policy ID to securely locate 
@@ -30,112 +34,54 @@ validator escrow(admin_policy: PolicyId) {
   spend(
     datum: Option<EscrowDatum>,
     redeemer: EscrowRedeemer,
-    _own_ref: OutputReference,
-    transaction: Transaction,
+    own_ref: OutputReference,
+    tx: Transaction,
   ) {
-    expect Some(escrow_datum) = datum
-
-    // --- HELPER: Read the Global Configuration ---
-    // Finds the reference UTxO holding the Admin NFT and extracts the config.
-    let get_config =
-      fn() -> GlobalConfig {
-        expect Some(config_input) =
-          list.find(
-            transaction.reference_inputs,
-            fn(input) {
-              assets.quantity_of(input.output.value, admin_policy, "") == 1
-            },
-          )
-
-        // Extract the inline datum and cast it to GlobalConfig
-        expect InlineDatum(datum_data) = config_input.output.datum
-        expect config: GlobalConfig = datum_data
-        config
-      }
+    expect Some(d) = datum
 
     when redeemer is {
       Apply -> False
 
-      Select { .. } ->
-        // TODO (Week 2): Verify client signature.
-        // TODO (Week 2): Verify only builder_address, selected_at, and status fields changed.
-        True
+      Select { builder } -> validate_select(tx, own_ref, d, builder)
 
-      Submit ->
-        // TODO (Week 2): Verify builder signature.
-        // TODO (Week 2): Verify only submitted_at and status fields changed.
-        True
-      Update ->
-        // TODO (Week 2): Verify transaction is signed by client_address
-        // TODO (Week 2): Verify input escrow_datum.status == Open
-        // TODO (Week 2): Verify the output UTxO goes back to this exact script address
-        // TODO (Week 2): Verify the output datum ONLY changes job_cid, amount_lovelace, auto_release_deadline, or auto_refund_deadline
-        // TODO (Week 2): Verify the output status remains Open
-        True
-
-      Release -> {
-        let config = get_config()
-
-        // 1. Calculate the base cut (e.g., 5% of amount_lovelace)
-        let base_cut =
-          escrow_datum.amount_lovelace * config.platform_cut_percent / 100
-
-        // 2. Edge Case Protection: Ensure the treasury output meets Min-UTxO (1.5 ADA)
-        let treasury_cut =
-          if base_cut < 1_500_000 {
-            1_500_000
-          } else {
-            base_cut
-          }
-
-        // 3. Calculate builder payout (underscore silences unused variable warning for the stub)
-        let _builder_payout = escrow_datum.amount_lovelace - treasury_cut
-
-        // TODO (Week 2): Verify transaction is signed by client_address AND builder_address
-        // TODO (Week 2): Verify an output goes to config.treasury_address with value == treasury_cut
-        // TODO (Week 2): Verify an output goes to escrow_datum.builder_address with value == _builder_payout
-        True
+      Submit -> validate_submit(tx, own_ref, d)
+      Update { new_job_cid, new_amount_lovelace, new_category } -> {
+        expect Some(config) = find_global_config(tx, admin_policy)
+        validate_update(
+          tx,
+          own_ref,
+          d,
+          config,
+          new_job_cid,
+          new_amount_lovelace,
+          new_category,
+        )
       }
 
-      Refund ->
-        // TODO (Week 2): Verify transaction is signed by client_address AND builder_address
-        // TODO (Week 2): Verify an output goes to client_address with value == escrow_datum.amount_lovelace
-        True
+      Release -> {
+        expect Some(config) = find_global_config(tx, admin_policy)
+        validate_release(tx, d, config)
+      }
 
-      Dispute -> {
-        let _config = get_config()
+      Refund -> validate_refund(tx, d)
+
+      BuilderWithdraw -> validate_builder_withdraw(tx, own_ref, d)
+
+      Dispute ->
         // TODO (Week 3): Verify transaction is signed by client_address OR builder_address
         // TODO (Week 3): Verify an output pays the dispute fee (config.dispute_fee_lovelace) into the script
         // TODO (Week 3): Verify the output datum matches input datum exactly, EXCEPT status = Disputed
         True
-      }
 
-      Resolve { .. } -> {
-        let _config = get_config()
+      Resolve { .. } ->
         // TODO (Week 3): Verify arbitrator signature + one party signature.
         // TODO (Week 3): Handle distribution of funds + dispute fee based on resolution.
         True
-      }
 
-      AutoRelease -> {
-        let config = get_config()
-
-        let base_cut =
-          escrow_datum.amount_lovelace * config.platform_cut_percent / 100
-
-        let treasury_cut =
-          if base_cut < 1_500_000 {
-            1_500_000
-          } else {
-            base_cut
-          }
-
-        let _builder_payout = escrow_datum.amount_lovelace - treasury_cut
-
+      AutoRelease ->
         // TODO (Week 3): Verify current slot >= submitted_at + auto_release_deadline
         // TODO (Week 3): Verify outputs (same logic as Release)
         True
-      }
 
       AutoRefund ->
         // TODO (Week 3): Verify current slot >= selected_at + auto_refund_deadline
@@ -143,7 +89,7 @@ validator escrow(admin_policy: PolicyId) {
         True
 
       ArbitratorTimeout ->
-        // TODO (Week 3): Verify 30 days passed since dispute raised
+        // TODO (Week 3): Verify 14 days passed since dispute raised
         // TODO (Week 3): Auto-resolve based on evidence submission timestamp
         True
     }

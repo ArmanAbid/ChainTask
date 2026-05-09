@@ -12,19 +12,18 @@
 //// from inflating their own reputation without an actual paid job.
 
 use cardano/transaction.{OutputReference, Transaction}
-use chaintask/types.{IncrementOnRelease, ReputationDatum, ReputationRedeemer}
+use chaintask/types.{ReputationDatum, ReputationRedeemer}
 
 validator reputation {
   spend(
     datum: Option<ReputationDatum>,
-    redeemer: ReputationRedeemer,
+    _redeemer: ReputationRedeemer,
     _own_ref: OutputReference,
     _tx: Transaction,
   ) {
-    expect Some(rep_datum) = datum
-    // We bind the redeemer values here so they are ready for Week 4 logic.
-    let IncrementOnRelease { volume: _volume, timestamp: _timestamp } = redeemer
+    expect Some(_rep_datum) = datum
 
+    // We bind the redeemer values here so they are ready for Week 4 logic.
     // TODO (Week 4): Verify the transaction also spends a valid Escrow UTxO 
     //                with the `Release` redeemer. (Cross-contract verification)
     // TODO (Week 4): Find the output UTxO sent back to this script address.
