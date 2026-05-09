@@ -38,6 +38,8 @@ pub type EscrowDatum {
   job_cid: ByteArray,
   /// Locked job payment. Validator enforces this against the GlobalConfig min amount.
   amount_lovelace: Int,
+  //IPFS roundtrip per listing
+  category: ByteArray,
   /// Block POSIX time at posting / selection / submission. None until reached.
   /// Stored as milliseconds since epoch (Int).
   created_at: Int,
@@ -55,11 +57,16 @@ pub type EscrowDatum {
 /// All valid actions on an escrow UTxO.
 pub type EscrowRedeemer {
   Apply
-  Update
+  Update {
+    new_job_cid: ByteArray,
+    new_amount_lovelace: Int,
+    new_category: ByteArray,
+  }
   Select { builder: Address }
   Submit
   Release
   Refund
+  BuilderWithdraw
   Dispute
   Resolve { release_to_builder: Bool }
   AutoRelease
@@ -73,11 +80,24 @@ pub type ReputationDatum {
   builder_address: Address,
   completed_jobs: Int,
   total_volume_lovelace: Int,
+  unique_clients: Int,
+  disputes_won: Int,
+  disputes_lost: Int,
+  withdrawals: Int,
   first_job_timestamp: Int,
+  last_activity_timestamp: Int,
+  recent_job_cids: List<ByteArray>,
 }
 
 pub type ReputationRedeemer {
-  IncrementOnRelease { volume: Int, timestamp: Int }
+  IncrementOnRelease {
+    volume: Int,
+    timestamp: Int,
+    job_cid: ByteArray,
+    client_address: Address,
+  }
+  IncrementOnWithdraw { timestamp: Int }
+  IncrementDisputeOutcome { won: Bool, timestamp: Int }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -97,4 +117,8 @@ pub const arbitrator_timeout_seconds: Int = 1_209_600
 // 14 days
 
 /// Maximum datum size. Bounded to keep validator ex-units predictable.
-pub const max_datum_bytes: Int = 256
+pub const max_datum_bytes: Int = 512
+
+pub const max_category_bytes: Int = 16
+
+pub const max_recent_jobs: Int = 10
