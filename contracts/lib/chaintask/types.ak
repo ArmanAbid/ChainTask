@@ -51,6 +51,8 @@ pub type EscrowDatum {
   auto_refund_deadline: Int,
   /// Address that raised the active dispute, if any.
   dispute_raised_by: Option<Address>,
+  dispute_raised_at: Option<Int>,
+  dispute_evidence_cid: Option<ByteArray>,
   status: Status,
 }
 
@@ -67,7 +69,7 @@ pub type EscrowRedeemer {
   Release
   Refund
   BuilderWithdraw
-  Dispute
+  Dispute { evidence_cid: ByteArray }
   Resolve { release_to_builder: Bool }
   AutoRelease
   AutoRefund
@@ -122,3 +124,5 @@ pub const max_datum_bytes: Int = 512
 pub const max_category_bytes: Int = 16
 
 pub const max_recent_jobs: Int = 10
+
+pub const max_evidence_cid_bytes: Int = 64
