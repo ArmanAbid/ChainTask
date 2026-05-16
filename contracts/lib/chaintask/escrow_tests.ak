@@ -12,12 +12,14 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction, placeholder,
 }
 use chaintask/escrow_logic.{
-  validate_builder_withdraw, validate_refund, validate_release, validate_select,
-  validate_submit, validate_update,
+  validate_arbitrator_timeout, validate_auto_refund, validate_auto_release,
+  validate_builder_withdraw, validate_dispute, validate_refund, validate_release,
+  validate_resolve, validate_select, validate_submit, validate_update,
 }
 use chaintask/types.{
-  EscrowDatum, GlobalConfig, Open, Selected, Submitted,
-  default_auto_refund_seconds, default_auto_release_seconds,
+  Disputed, EscrowDatum, GlobalConfig, Open, Selected, Submitted,
+  arbitrator_timeout_seconds, default_auto_refund_seconds,
+  default_auto_release_seconds,
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -40,6 +42,8 @@ const treasury_vkh: ByteArray =
   #"7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e"
 
 const default_category: ByteArray = "design"
+
+const evidence_cid_a: ByteArray = "QmEvidence111111111111111111"
 
 fn vk_address(vkh: ByteArray) -> Address {
   Address { payment_credential: VerificationKey(vkh), stake_credential: None }
@@ -88,6 +92,8 @@ fn fresh_open_datum() -> EscrowDatum {
     auto_release_deadline: default_auto_release_seconds,
     auto_refund_deadline: default_auto_refund_seconds,
     dispute_raised_by: None,
+    dispute_raised_at: None,
+    dispute_evidence_cid: None,
     status: Open,
   }
 }
@@ -120,6 +126,15 @@ fn continuing_script_output(d: EscrowDatum) -> Output {
   }
 }
 
+fn continuing_script_output_with(d: EscrowDatum, extra_lovelace: Int) -> Output {
+  Output {
+    address: script_addr(),
+    value: assets.from_lovelace(d.amount_lovelace + extra_lovelace),
+    datum: InlineDatum(d),
+    reference_script: None,
+  }
+}
+
 fn payment_output(to: Address, lovelace: Int) -> Output {
   Output {
     address: to,
@@ -140,6 +155,21 @@ fn mk_tx(
     outputs,
     extra_signatories: signers,
     validity_range: interval.everything,
+  }
+}
+
+fn mk_tx_with_validity(
+  d_in: EscrowDatum,
+  outputs: List<Output>,
+  signers: List<ByteArray>,
+  validity: interval.Interval,
+) -> Transaction {
+  Transaction {
+    ..placeholder,
+    inputs: [script_input(d_in)],
+    outputs,
+    extra_signatories: signers,
+    validity_range: validity,
   }
 }
 
@@ -708,4 +738,559 @@ test builder_withdraw_rejected_when_amount_changes() {
     }
   let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
   !validate_builder_withdraw(tx, own_ref(), old)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Dispute tests
+// ───────────────────────────────────────────────────────────────────────────
+
+test dispute_happy_path_client_raised() {
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let new =
+    EscrowDatum {
+      ..old,
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  // UTxO now holds amount + dispute fee.
+  let tx =
+    mk_tx(
+      old,
+      [continuing_script_output_with(new, cfg.dispute_fee_lovelace)],
+      [client_vkh],
+    )
+  validate_dispute(tx, own_ref(), old, cfg, evidence_cid_a)
+}
+
+test dispute_happy_path_builder_raised() {
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let new =
+    EscrowDatum {
+      ..old,
+      status: Disputed,
+      dispute_raised_by: Some(builder_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let tx =
+    mk_tx(
+      old,
+      [continuing_script_output_with(new, cfg.dispute_fee_lovelace)],
+      [builder_vkh],
+    )
+  validate_dispute(tx, own_ref(), old, cfg, evidence_cid_a)
+}
+
+test dispute_rejected_without_dispute_fee() {
+  // Attack: try to raise a dispute without paying the fee.
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let new =
+    EscrowDatum {
+      ..old,
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  // No extra lovelace added to the continuing UTxO.
+  let tx = mk_tx(old, [continuing_script_output(new)], [client_vkh])
+  !validate_dispute(tx, own_ref(), old, mock_config(), evidence_cid_a)
+}
+
+test dispute_rejected_when_no_signatures() {
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let new =
+    EscrowDatum {
+      ..old,
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  // Tx has no signers — should reject.
+  let tx =
+    mk_tx(
+      old,
+      [continuing_script_output_with(new, cfg.dispute_fee_lovelace)],
+      [],
+    )
+  !validate_dispute(tx, own_ref(), old, cfg, evidence_cid_a)
+}
+
+test dispute_rejected_when_status_is_open() {
+  // Attack: dispute a job that's still Open. Status guard must reject this
+  // even when a builder_address is somehow set in the datum.
+  let old =
+    EscrowDatum { ..fresh_open_datum(), builder_address: Some(builder_addr()) }
+  let cfg = mock_config()
+  let new =
+    EscrowDatum {
+      ..old,
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let tx =
+    mk_tx(
+      old,
+      [continuing_script_output_with(new, cfg.dispute_fee_lovelace)],
+      [client_vkh],
+    )
+  !validate_dispute(tx, own_ref(), old, cfg, evidence_cid_a)
+}
+
+test dispute_rejected_with_empty_evidence() {
+  // Attack: dispute without actually pointing to any evidence.
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let empty: ByteArray = ""
+  let new =
+    EscrowDatum {
+      ..old,
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(empty),
+    }
+  let tx =
+    mk_tx(
+      old,
+      [continuing_script_output_with(new, cfg.dispute_fee_lovelace)],
+      [client_vkh],
+    )
+  !validate_dispute(tx, own_ref(), old, cfg, empty)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Resolve tests
+// ───────────────────────────────────────────────────────────────────────────
+
+fn disputed_datum_client_raised() -> EscrowDatum {
+  EscrowDatum {
+    ..fresh_open_datum(),
+    builder_address: Some(builder_addr()),
+    selected_at: Some(1_700_001_000_000),
+    submitted_at: Some(1_700_002_000_000),
+    status: Disputed,
+    dispute_raised_by: Some(client_addr()),
+    dispute_raised_at: Some(1_700_003_000_000),
+    dispute_evidence_cid: Some(evidence_cid_a),
+  }
+}
+
+test resolve_happy_path_in_favor_of_client() {
+  let old = disputed_datum_client_raised()
+  let cfg = mock_config()
+  // Client gets full amount; treasury gets dispute fee.
+  let tx =
+    mk_tx(
+      old,
+      [
+        payment_output(client_addr(), old.amount_lovelace),
+        payment_output(treasury_addr(), cfg.dispute_fee_lovelace),
+      ],
+      [arbitrator_vkh, client_vkh],
+    )
+  validate_resolve(tx, old, cfg, False)
+}
+
+test resolve_happy_path_in_favor_of_builder() {
+  let old = disputed_datum_client_raised()
+  let cfg = mock_config()
+  // Builder gets payout; treasury gets cut + dispute fee = 2.5 + 15 = 17.5 ADA.
+  let tx =
+    mk_tx(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 17_500_000),
+      ],
+      [arbitrator_vkh, builder_vkh],
+    )
+  validate_resolve(tx, old, cfg, True)
+}
+
+test resolve_rejected_without_arbitrator_sig() {
+  // Attack: client + builder collude to "resolve" without arbitrator.
+  let old = disputed_datum_client_raised()
+  let cfg = mock_config()
+  let tx =
+    mk_tx(
+      old,
+      [
+        payment_output(client_addr(), old.amount_lovelace),
+        payment_output(treasury_addr(), cfg.dispute_fee_lovelace),
+      ],
+      [client_vkh, builder_vkh],
+    )
+  !validate_resolve(tx, old, cfg, False)
+}
+
+test resolve_rejected_when_treasury_doesnt_get_fee() {
+  // Attack: arbitrator + client try to skip the dispute fee to treasury.
+  let old = disputed_datum_client_raised()
+  let cfg = mock_config()
+  let tx =
+    mk_tx(
+      old,
+      [payment_output(client_addr(), old.amount_lovelace)],
+      [arbitrator_vkh, client_vkh],
+    )
+  !validate_resolve(tx, old, cfg, False)
+}
+
+test resolve_rejected_when_status_not_disputed() {
+  // Try to resolve a non-disputed escrow.
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let tx =
+    mk_tx(
+      old,
+      [
+        payment_output(client_addr(), old.amount_lovelace),
+        payment_output(treasury_addr(), cfg.dispute_fee_lovelace),
+      ],
+      [arbitrator_vkh, client_vkh],
+    )
+  !validate_resolve(tx, old, cfg, False)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// AutoRelease tests — validity-range time logic
+// ───────────────────────────────────────────────────────────────────────────
+
+test auto_release_happy_path_after_deadline() {
+  let submitted_at_ms = 1_700_002_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(submitted_at_ms),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  // Deadline = submitted_at + 14 days. Tx validity starts after that.
+  let deadline_ms = submitted_at_ms + 1_209_600 * 1000
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 2_500_000),
+      ],
+      [builder_vkh],
+      interval.after(deadline_ms + 1),
+    )
+  validate_auto_release(tx, old, cfg)
+}
+
+test auto_release_rejected_before_deadline() {
+  let submitted_at_ms = 1_700_002_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(submitted_at_ms),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  // Tx validity is before the deadline — must reject.
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 2_500_000),
+      ],
+      [builder_vkh],
+      interval.after(submitted_at_ms),
+    )
+  !validate_auto_release(tx, old, cfg)
+}
+
+test auto_release_rejected_with_unbounded_validity() {
+  // Attack: pass an open-ended validity range to bypass the time check.
+  // is_entirely_after must reject this.
+  let submitted_at_ms = 1_700_002_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(submitted_at_ms),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 2_500_000),
+      ],
+      [builder_vkh],
+      interval.everything,
+    )
+  !validate_auto_release(tx, old, cfg)
+}
+
+test auto_release_rejected_when_not_signed_by_builder() {
+  let submitted_at_ms = 1_700_002_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(submitted_at_ms),
+      status: Submitted,
+    }
+  let cfg = mock_config()
+  let deadline_ms = submitted_at_ms + 1_209_600 * 1000
+  // Client tries to trigger AutoRelease (only builder may do so).
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 2_500_000),
+      ],
+      [client_vkh],
+      interval.after(deadline_ms + 1),
+    )
+  !validate_auto_release(tx, old, cfg)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// AutoRefund tests
+// ───────────────────────────────────────────────────────────────────────────
+
+test auto_refund_happy_path_after_deadline() {
+  let selected_at_ms = 1_700_001_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(selected_at_ms),
+      status: Selected,
+    }
+  let deadline_ms = selected_at_ms + 1_209_600 * 1000
+  // Full amount to client, no platform fee on no-show.
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [payment_output(client_addr(), old.amount_lovelace)],
+      [client_vkh],
+      interval.after(deadline_ms + 1),
+    )
+  validate_auto_refund(tx, old)
+}
+
+test auto_refund_rejected_before_deadline() {
+  let selected_at_ms = 1_700_001_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(selected_at_ms),
+      status: Selected,
+    }
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [payment_output(client_addr(), old.amount_lovelace)],
+      [client_vkh],
+      interval.after(selected_at_ms),
+    )
+  !validate_auto_refund(tx, old)
+}
+
+test auto_refund_rejected_after_submitted() {
+  // Attack: builder already submitted; client tries to bypass via AutoRefund.
+  let selected_at_ms = 1_700_001_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(selected_at_ms),
+      submitted_at: Some(1_700_002_000_000),
+      status: Submitted,
+    }
+  let deadline_ms = selected_at_ms + 1_209_600 * 1000
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [payment_output(client_addr(), old.amount_lovelace)],
+      [client_vkh],
+      interval.after(deadline_ms + 1),
+    )
+  !validate_auto_refund(tx, old)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ArbitratorTimeout tests
+// ───────────────────────────────────────────────────────────────────────────
+
+test arbitrator_timeout_happy_path_client_raiser() {
+  let raised_at_ms = 1_700_003_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(raised_at_ms),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let cfg = mock_config()
+  let timeout_ms = raised_at_ms + arbitrator_timeout_seconds * 1000
+  // Client raised → defaults to client refund + treasury fee.
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(client_addr(), old.amount_lovelace),
+        payment_output(treasury_addr(), cfg.dispute_fee_lovelace),
+      ],
+      [client_vkh],
+      interval.after(timeout_ms + 1),
+    )
+  validate_arbitrator_timeout(tx, old, cfg)
+}
+
+test arbitrator_timeout_happy_path_builder_raiser() {
+  let raised_at_ms = 1_700_003_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Disputed,
+      dispute_raised_by: Some(builder_addr()),
+      dispute_raised_at: Some(raised_at_ms),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let cfg = mock_config()
+  let timeout_ms = raised_at_ms + arbitrator_timeout_seconds * 1000
+  // Builder raised → defaults to release split + dispute fee to treasury.
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 17_500_000),
+      ],
+      [builder_vkh],
+      interval.after(timeout_ms + 1),
+    )
+  validate_arbitrator_timeout(tx, old, cfg)
+}
+
+test arbitrator_timeout_rejected_before_deadline() {
+  let raised_at_ms = 1_700_003_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(raised_at_ms),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let cfg = mock_config()
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(client_addr(), old.amount_lovelace),
+        payment_output(treasury_addr(), cfg.dispute_fee_lovelace),
+      ],
+      [client_vkh],
+      interval.after(raised_at_ms),
+    )
+  !validate_arbitrator_timeout(tx, old, cfg)
+}
+
+test arbitrator_timeout_rejected_when_non_raiser_signs() {
+  // Attack: client raised the dispute but builder tries to trigger timeout
+  // and pay themselves.
+  let raised_at_ms = 1_700_003_000_000
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      submitted_at: Some(1_700_002_000_000),
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(raised_at_ms),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let cfg = mock_config()
+  let timeout_ms = raised_at_ms + arbitrator_timeout_seconds * 1000
+  let tx =
+    mk_tx_with_validity(
+      old,
+      [
+        payment_output(builder_addr(), 47_500_000),
+        payment_output(treasury_addr(), 17_500_000),
+      ],
+      [builder_vkh],
+      interval.after(timeout_ms + 1),
+    )
+  !validate_arbitrator_timeout(tx, old, cfg)
 }
