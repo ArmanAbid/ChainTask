@@ -19,8 +19,9 @@
 use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use chaintask/escrow_logic.{
-  validate_builder_withdraw, validate_refund, validate_release, validate_select,
-  validate_submit, validate_update,
+  validate_arbitrator_timeout, validate_auto_refund, validate_auto_release,
+  validate_builder_withdraw, validate_dispute, validate_refund, validate_release,
+  validate_resolve, validate_select, validate_submit, validate_update,
 }
 use chaintask/tx_helpers.{find_global_config}
 use chaintask/types.{
@@ -67,31 +68,27 @@ validator escrow(admin_policy: PolicyId) {
 
       BuilderWithdraw -> validate_builder_withdraw(tx, own_ref, d)
 
-      Dispute ->
-        // TODO (Week 3): Verify transaction is signed by client_address OR builder_address
-        // TODO (Week 3): Verify an output pays the dispute fee (config.dispute_fee_lovelace) into the script
-        // TODO (Week 3): Verify the output datum matches input datum exactly, EXCEPT status = Disputed
-        True
+      Dispute { evidence_cid } -> {
+        expect Some(config) = find_global_config(tx, admin_policy)
+        validate_dispute(tx, own_ref, d, config, evidence_cid)
+      }
 
-      Resolve { .. } ->
-        // TODO (Week 3): Verify arbitrator signature + one party signature.
-        // TODO (Week 3): Handle distribution of funds + dispute fee based on resolution.
-        True
+      Resolve { release_to_builder } -> {
+        expect Some(config) = find_global_config(tx, admin_policy)
+        validate_resolve(tx, d, config, release_to_builder)
+      }
 
-      AutoRelease ->
-        // TODO (Week 3): Verify current slot >= submitted_at + auto_release_deadline
-        // TODO (Week 3): Verify outputs (same logic as Release)
-        True
+      AutoRelease -> {
+        expect Some(config) = find_global_config(tx, admin_policy)
+        validate_auto_release(tx, d, config)
+      }
 
-      AutoRefund ->
-        // TODO (Week 3): Verify current slot >= selected_at + auto_refund_deadline
-        // TODO (Week 3): Verify output goes to client_address (full amount)
-        True
+      AutoRefund -> validate_auto_refund(tx, d)
 
-      ArbitratorTimeout ->
-        // TODO (Week 3): Verify 14 days passed since dispute raised
-        // TODO (Week 3): Auto-resolve based on evidence submission timestamp
-        True
+      ArbitratorTimeout -> {
+        expect Some(config) = find_global_config(tx, admin_policy)
+        validate_arbitrator_timeout(tx, d, config)
+      }
     }
   }
 
