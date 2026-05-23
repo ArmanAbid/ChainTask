@@ -1,36 +1,61 @@
 //// ChainTask builder reputation validator.
-////
-//// Each builder has a single reputation UTxO carrying their lifetime stats.
-//// On a successful Release in escrow.ak, this validator must:
-////
-////   - increment completed_jobs by 1
-////   - add the released amount to total_volume_lovelace
-////   - leave first_job_timestamp untouched
-////   - require the spending tx also spends an escrow UTxO with redeemer = Release
-////
-//// The escrow → reputation cross-validator check is what prevents builders
-//// from inflating their own reputation without an actual paid job.
+//// Each builder has at most one reputation UTxO carrying their lifetime stats. Cross-validates against the escrow validator to ensure rep updates only happen as a side effect of real escrow events.
 
 use cardano/transaction.{OutputReference, Transaction}
-use chaintask/types.{ReputationDatum, ReputationRedeemer}
+use chaintask/reputation_logic.{
+  validate_increment_dispute_outcome, validate_increment_on_release,
+  validate_increment_on_withdraw,
+}
+use chaintask/tx_helpers.{continuing_output, inline_datum_of}
+use chaintask/types.{
+  IncrementDisputeOutcome, IncrementOnRelease, IncrementOnWithdraw,
+  ReputationDatum, ReputationRedeemer,
+}
 
-validator reputation {
+validator reputation(escrow_script_hash: ByteArray) {
   spend(
     datum: Option<ReputationDatum>,
-    _redeemer: ReputationRedeemer,
-    _own_ref: OutputReference,
-    _tx: Transaction,
+    redeemer: ReputationRedeemer,
+    own_ref: OutputReference,
+    tx: Transaction,
   ) {
-    expect Some(_rep_datum) = datum
+    expect Some(old) = datum
 
-    // We bind the redeemer values here so they are ready for Week 4 logic.
-    // TODO (Week 4): Verify the transaction also spends a valid Escrow UTxO 
-    //                with the `Release` redeemer. (Cross-contract verification)
-    // TODO (Week 4): Find the output UTxO sent back to this script address.
-    // TODO (Week 4): Verify output completed_jobs == rep_datum.completed_jobs + 1
-    // TODO (Week 4): Verify output total_volume_lovelace == rep_datum.total_volume_lovelace + _volume
-    // TODO (Week 4): Verify output first_job_timestamp == rep_datum.first_job_timestamp
-    True
+    expect Some(out) = continuing_output(tx, own_ref)
+    expect Some(raw) = inline_datum_of(out)
+    expect new: ReputationDatum = raw
+
+    when redeemer is {
+      IncrementOnRelease { volume, timestamp, job_cid } ->
+        validate_increment_on_release(
+          tx,
+          escrow_script_hash,
+          old,
+          new,
+          volume,
+          timestamp,
+          job_cid,
+        )
+
+      IncrementOnWithdraw { timestamp } ->
+        validate_increment_on_withdraw(
+          tx,
+          escrow_script_hash,
+          old,
+          new,
+          timestamp,
+        )
+
+      IncrementDisputeOutcome { won, timestamp } ->
+        validate_increment_dispute_outcome(
+          tx,
+          escrow_script_hash,
+          old,
+          new,
+          won,
+          timestamp,
+        )
+    }
   }
 
   else(_) {
