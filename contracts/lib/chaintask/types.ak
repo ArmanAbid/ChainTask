@@ -82,7 +82,6 @@ pub type ReputationDatum {
   builder_address: Address,
   completed_jobs: Int,
   total_volume_lovelace: Int,
-  unique_clients: Int,
   disputes_won: Int,
   disputes_lost: Int,
   withdrawals: Int,
@@ -92,12 +91,7 @@ pub type ReputationDatum {
 }
 
 pub type ReputationRedeemer {
-  IncrementOnRelease {
-    volume: Int,
-    timestamp: Int,
-    job_cid: ByteArray,
-    client_address: Address,
-  }
+  IncrementOnRelease { volume: Int, timestamp: Int, job_cid: ByteArray }
   IncrementOnWithdraw { timestamp: Int }
   IncrementDisputeOutcome { won: Bool, timestamp: Int }
 }
