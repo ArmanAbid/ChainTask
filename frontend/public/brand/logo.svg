@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 80" width="320" height="80" role="img" aria-label="chain/task">
+  <text x="20" y="56" font-family="'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace" font-size="46" font-weight="500" letter-spacing="-0.5">
+    <tspan fill="#f4f4f5">chain</tspan><tspan fill="#5ec1d8" dx="4">/</tspan><tspan fill="#f4f4f5" dx="4">task</tspan>
+  </text>
+</svg>

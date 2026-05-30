@@ -1,12 +1,261 @@
 @import "tailwindcss";
 
-html, body, #root {
-  height: 100%;
+@theme {
+  --color-bg: oklch(0.15 0.008 250);
+  --color-bg-2: oklch(0.13 0.008 250);
+  --color-surface: oklch(0.195 0.008 250);
+  --color-surface-2: oklch(0.235 0.008 250);
+  --color-surface-3: oklch(0.275 0.008 250);
+  --color-border: oklch(0.30 0.008 250);
+  --color-border-strong: oklch(0.40 0.010 250);
+  --color-text: oklch(0.97 0.004 250);
+  --color-text-dim: oklch(0.70 0.008 250);
+  --color-text-faint: oklch(0.50 0.010 250);
+  --color-accent: oklch(0.78 0.13 215);
+  --color-accent-soft: oklch(0.78 0.13 215 / 0.14);
+  --color-accent-line: oklch(0.78 0.13 215 / 0.35);
+  --color-success: oklch(0.80 0.14 155);
+  --color-success-soft: oklch(0.80 0.14 155 / 0.13);
+  --color-warn: oklch(0.85 0.13 78);
+  --color-warn-soft: oklch(0.85 0.13 78 / 0.13);
+  --color-danger: oklch(0.72 0.17 25);
+  --color-danger-soft: oklch(0.72 0.17 25 / 0.13);
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  --font-serif: "Instrument Serif", Georgia, serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-s1: 0 1px 0 oklch(1 0 0 / 0.04) inset, 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-s2: 0 1px 0 oklch(1 0 0 / 0.05) inset, 0 8px 24px oklch(0 0 0 / 0.45);
+
+  --animate-fade-up: fadeUp 0.65s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-fade-in: fadeIn 0.7s ease both;
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
 }
 
+/* ──────────────────────────────────────────────────────────────────────
+   Base
+   ────────────────────────────────────────────────────────────────────── */
+:root { color-scheme: dark; }
+html { scroll-behavior: smooth; }
+html, body, #root { height: 100%; }
 body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(1200px 600px at 15% -10%, oklch(0.78 0.13 215 / 0.06), transparent 60%),
+    radial-gradient(800px 500px at 95% 5%, oklch(0.80 0.14 155 / 0.04), transparent 60%),
+    var(--color-bg);
+  color: var(--color-text);
+}
+::selection { background: oklch(0.78 0.13 215 / 0.14); color: oklch(0.97 0.004 250); }
+
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--color-surface-3);
+  border-radius: 10px;
+  border: 2px solid var(--color-bg);
+}
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ──────────────────────────────────────────────────────────────────────
+   Components — written as plain CSS using the theme tokens.
+
+   In v4, `@apply` inside `@layer components` works, but using plain CSS
+   that references the theme variables (e.g. `var(--color-border)`) is
+   simpler and avoids edge cases with arbitrary spacing values.
+   ────────────────────────────────────────────────────────────────────── */
+@layer components {
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 0.375rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    padding: 0.5rem 0.875rem;
+    font-size: 13px; font-weight: 500;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    cursor: pointer;
+  }
+  .btn:hover { background: var(--color-surface-2); border-color: var(--color-border-strong); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-sm { padding: 0.375rem 0.625rem; font-size: 12px; border-radius: 7px; }
+  .btn-lg { padding: 11px 18px; font-size: 14px; }
+
+  .btn-primary {
+    background: var(--color-text); color: var(--color-bg); border-color: var(--color-text);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: oklch(0.92 0.005 250); border-color: oklch(0.92 0.005 250); }
+
+  .btn-accent {
+    background: var(--color-accent); color: var(--color-bg); border-color: var(--color-accent);
+    font-weight: 600;
+  }
+  .btn-accent:hover { filter: brightness(1.1); }
+
+  .btn-ghost {
+    background: transparent; border-color: transparent; color: var(--color-text-dim);
+  }
+  .btn-ghost:hover { background: var(--color-surface); color: var(--color-text); }
+
+  .btn-danger {
+    color: var(--color-danger);
+    border-color: oklch(0.72 0.17 25 / 0.4);
+    background: var(--color-danger-soft);
+  }
+  .btn-danger:hover { background: oklch(0.72 0.17 25 / 0.2); }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-s1);
+  }
+  .card-pad { padding: 1.25rem; }
+  .card-row {
+    display: flex; align-items: center; gap: 1rem;
+    padding: 1rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .card-row:last-child { border-bottom: 0; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 0.375rem;
+    padding: 3px 0.5rem;
+    border-radius: 9999px;
+    font-size: 11.5px; font-weight: 500;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+  }
+  .pill .dot { width: 0.375rem; height: 0.375rem; border-radius: 9999px; background: currentColor; }
+  .pill-open      { color: var(--color-text-dim); border-color: var(--color-border); background: var(--color-surface-2); }
+  .pill-selected  { color: var(--color-accent); border-color: var(--color-accent-line); background: var(--color-accent-soft); }
+  .pill-submitted { color: var(--color-warn);   border-color: oklch(0.85 0.13 78 / 0.35); background: var(--color-warn-soft); }
+  .pill-completed { color: var(--color-success); border-color: oklch(0.80 0.14 155 / 0.35); background: var(--color-success-soft); }
+  .pill-disputed  { color: var(--color-danger); border-color: oklch(0.72 0.17 25 / 0.35); background: var(--color-danger-soft); }
+
+  .input, .textarea, .select {
+    width: 100%;
+    background: var(--color-bg-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.625rem 0.75rem;
+    font-size: 13px;
+    color: var(--color-text);
+    outline: none;
+    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+  }
+  .input:focus, .textarea:focus, .select:focus {
+    border-color: var(--color-accent-line);
+    background: var(--color-surface);
+    box-shadow: 0 0 0 3px oklch(0.78 0.13 215 / 0.14);
+  }
+  .textarea { resize: vertical; min-height: 96px; line-height: 1.625; }
+  .field-label { font-size: 12px; color: var(--color-text-dim); font-weight: 500; }
+
+  .ada::before { content: "₳"; color: var(--color-accent); margin-right: 2px; font-weight: 600; }
+
+  .tag {
+    display: inline-flex; align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--radius-md);
+    font-size: 11.5px;
+    background: var(--color-surface-2);
+    color: var(--color-text-dim);
+    border: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-2);
+    color: var(--color-text-faint);
+  }
+
+  .divider { height: 1px; background: var(--color-border); margin: 0.25rem 0; }
+
+  .vault-line {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-border-strong), transparent);
+    position: relative;
+  }
+  .vault-line.active::before {
+    content: ""; position: absolute; inset: -1px;
+    background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+    background-size: 200% 100%;
+    animation: dash 2s linear infinite;
+  }
+  @keyframes dash { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(oklch(0.30 0.008 250) 1px, transparent 1px),
+      linear-gradient(90deg, oklch(0.30 0.008 250) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(60% 60% at 50% 50%, #000 0%, transparent 75%);
+    opacity: 0.35;
+  }
+
+  .tx-spinner {
+    width: 12px; height: 12px; border-radius: 999px;
+    border: 1.5px solid oklch(0.78 0.13 215 / 0.35);
+    border-top-color: var(--color-accent);
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .link-name {
+    background: transparent; border: 0; padding: 0;
+    color: var(--color-text-dim); cursor: pointer;
+    border-bottom: 1px dotted transparent;
+    transition: color 0.12s, border-color 0.12s;
+  }
+  .link-name:hover {
+    color: var(--color-text);
+    border-bottom-color: var(--color-accent-line);
+  }
+
+  /* Scroll-triggered reveal. Element starts hidden, animates in when
+     the `revealed` class is added by useReveal(). */
+  .reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+                transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+    will-change: opacity, transform;
+  }
+  .reveal.revealed { opacity: 1; transform: translateY(0); }
+  .stagger-1 { transition-delay: 60ms; }
+  .stagger-2 { transition-delay: 120ms; }
+  .stagger-3 { transition-delay: 180ms; }
+  .stagger-4 { transition-delay: 240ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-up, .animate-fade-in, .vault-line.active::before { animation: none !important; }
+  .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
