@@ -88,6 +88,7 @@ fn submitted_escrow_datum() -> EscrowDatum {
     created_at: 1_700_000_000_000,
     selected_at: Some(1_700_001_000_000),
     submitted_at: Some(1_700_002_000_000),
+    submission_cid: None,
     auto_release_deadline: default_auto_release_seconds,
     auto_refund_deadline: default_auto_refund_seconds,
     dispute_raised_by: None,
@@ -101,6 +102,7 @@ fn selected_escrow_datum() -> EscrowDatum {
   EscrowDatum {
     ..submitted_escrow_datum(),
     submitted_at: None,
+    submission_cid: None,
     status: Selected,
   }
 }
@@ -235,7 +237,13 @@ test increment_on_release_rejected_with_wrong_redeemer() {
       last_activity_timestamp: 1_700_003_000_000,
       recent_job_cids: [escrow_d.job_cid],
     }
-  let tx = mk_tx_with_escrow(old, escrow_d, Submit, [builder_vkh])
+  let tx =
+    mk_tx_with_escrow(
+      old,
+      escrow_d,
+      Submit { submission_cid: "QmTest11111111111111111111111" },
+      [builder_vkh],
+    )
   !validate_increment_on_release(
     tx,
     escrow_script_hash,
