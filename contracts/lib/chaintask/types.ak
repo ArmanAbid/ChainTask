@@ -45,6 +45,7 @@ pub type EscrowDatum {
   created_at: Int,
   selected_at: Option<Int>,
   submitted_at: Option<Int>,
+  submission_cid: Option<ByteArray>,
   /// Relative seconds. Builder may AutoRelease after submitted_at + this delay.
   auto_release_deadline: Int,
   /// Relative seconds. Client may AutoRefund after selected_at + this delay.
@@ -65,7 +66,8 @@ pub type EscrowRedeemer {
     new_category: ByteArray,
   }
   Select { builder: Address }
-  Submit
+  Submit { submission_cid: ByteArray }
+  AmendSubmission { new_submission_cid: ByteArray }
   Release
   Refund
   BuilderWithdraw
@@ -96,6 +98,18 @@ pub type ReputationRedeemer {
   IncrementDisputeOutcome { won: Bool, timestamp: Int }
 }
 
+pub type ProfileDatum {
+  /// The wallet that owns this profile. Only this address can update the CID.
+  owner_address: Address,
+  /// IPFS CID of the profile JSON: { display_name, bio?, avatar_cid? }.
+  profile_cid: ByteArray,
+}
+
+pub type ProfileRedeemer {
+  /// Update the pointed-to CID. Owner-signed.
+  UpdateProfile { new_profile_cid: ByteArray }
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Constants
 // ───────────────────────────────────────────────────────────────────────────
@@ -120,3 +134,7 @@ pub const max_category_bytes: Int = 16
 pub const max_recent_jobs: Int = 10
 
 pub const max_evidence_cid_bytes: Int = 64
+
+pub const max_submission_cid_bytes: Int = 64
+
+pub const max_profile_cid_bytes: Int = 64

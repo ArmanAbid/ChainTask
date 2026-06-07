@@ -19,6 +19,7 @@ use chaintask/types.{
   Disputed, EscrowDatum, GlobalConfig, Open, Selected, Submitted,
   arbitrator_timeout_seconds, default_auto_refund_seconds,
   default_auto_release_seconds, max_category_bytes, max_evidence_cid_bytes,
+  max_submission_cid_bytes,
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ pub fn validate_update(
       new_datum.created_at == old_datum.created_at,
       new_datum.selected_at == old_datum.selected_at,
       new_datum.submitted_at == old_datum.submitted_at,
+      new_datum.submission_cid == old_datum.submission_cid,
       new_datum.auto_release_deadline == old_datum.auto_release_deadline,
       new_datum.auto_refund_deadline == old_datum.auto_refund_deadline,
       new_datum.dispute_raised_by == old_datum.dispute_raised_by,
@@ -124,6 +126,7 @@ pub fn validate_select(
       new_datum.category == old_datum.category,
       new_datum.created_at == old_datum.created_at,
       new_datum.submitted_at == old_datum.submitted_at,
+      new_datum.submission_cid == old_datum.submission_cid,
       new_datum.auto_release_deadline == old_datum.auto_release_deadline,
       new_datum.auto_refund_deadline == old_datum.auto_refund_deadline,
       new_datum.dispute_raised_by == old_datum.dispute_raised_by,
@@ -157,6 +160,7 @@ pub fn validate_submit(
   tx: Transaction,
   own_ref: OutputReference,
   old_datum: EscrowDatum,
+  submission_cid: ByteArray,
 ) -> Bool {
   expect Some(builder_addr) = old_datum.builder_address
   let signed = is_signed_by(tx, builder_addr)
@@ -171,6 +175,12 @@ pub fn validate_submit(
     when new_datum.submitted_at is {
       Some(_) -> True
       None -> False
+    }
+  // submission_cid must transition from None to exactly the redeemer value.
+  // Bound the length to keep datum size predictable.
+  let submission_cid_set = and {
+      new_datum.submission_cid == Some(submission_cid),
+      builtin.length_of_bytearray(submission_cid) <= max_submission_cid_bytes,
     }
 
   let datum_ok = and {
@@ -194,6 +204,64 @@ pub fn validate_submit(
     in_selected_state,
     status_advanced,
     submitted_at_set,
+    submission_cid_set,
+    datum_ok,
+  }
+}
+
+pub fn validate_amend_submission(
+  tx: Transaction,
+  own_ref: OutputReference,
+  old_datum: EscrowDatum,
+  new_submission_cid: ByteArray,
+) -> Bool {
+  expect Some(builder_addr) = old_datum.builder_address
+  let signed = is_signed_by(tx, builder_addr)
+  let in_submitted_state = old_datum.status == Submitted
+
+  expect Some(out) = continuing_output(tx, own_ref)
+  expect Some(raw) = inline_datum_of(out)
+  expect new_datum: EscrowDatum = raw
+
+  // Status stays Submitted.
+  let status_unchanged = new_datum.status == Submitted
+
+  // submission_cid must equal the redeemer value and stay bounded.
+  let cid_set_correctly = and {
+      new_datum.submission_cid == Some(new_submission_cid),
+      builtin.length_of_bytearray(new_submission_cid) <= max_submission_cid_bytes,
+    }
+
+  // submitted_at must advance (strictly greater than old). The validity
+  // range's lower bound gives us a monotonic timestamp the chain agrees on.
+  let new_submitted_at_advanced =
+    when (new_datum.submitted_at, old_datum.submitted_at) is {
+      (Some(new_ts), Some(old_ts)) -> new_ts > old_ts
+      _ -> False
+    }
+
+  let datum_ok = and {
+      new_datum.client_address == old_datum.client_address,
+      new_datum.builder_address == old_datum.builder_address,
+      new_datum.arbitrator_address == old_datum.arbitrator_address,
+      new_datum.job_cid == old_datum.job_cid,
+      new_datum.amount_lovelace == old_datum.amount_lovelace,
+      new_datum.category == old_datum.category,
+      new_datum.created_at == old_datum.created_at,
+      new_datum.selected_at == old_datum.selected_at,
+      new_datum.auto_release_deadline == old_datum.auto_release_deadline,
+      new_datum.auto_refund_deadline == old_datum.auto_refund_deadline,
+      new_datum.dispute_raised_by == old_datum.dispute_raised_by,
+      new_datum.dispute_raised_at == old_datum.dispute_raised_at,
+      new_datum.dispute_evidence_cid == old_datum.dispute_evidence_cid,
+    }
+
+  and {
+    signed,
+    in_submitted_state,
+    status_unchanged,
+    cid_set_correctly,
+    new_submitted_at_advanced,
     datum_ok,
   }
 }
@@ -311,6 +379,7 @@ pub fn validate_builder_withdraw(
       new_datum.category == old_datum.category,
       new_datum.created_at == old_datum.created_at,
       new_datum.submitted_at == old_datum.submitted_at,
+      new_datum.submission_cid == old_datum.submission_cid,
       new_datum.auto_release_deadline == old_datum.auto_release_deadline,
       new_datum.auto_refund_deadline == old_datum.auto_refund_deadline,
       new_datum.dispute_raised_by == old_datum.dispute_raised_by,
@@ -397,6 +466,7 @@ pub fn validate_dispute(
       new_datum.created_at == old_datum.created_at,
       new_datum.selected_at == old_datum.selected_at,
       new_datum.submitted_at == old_datum.submitted_at,
+      new_datum.submission_cid == old_datum.submission_cid,
       new_datum.auto_release_deadline == old_datum.auto_release_deadline,
       new_datum.auto_refund_deadline == old_datum.auto_refund_deadline,
     }

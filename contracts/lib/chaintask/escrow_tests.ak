@@ -12,9 +12,10 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction, placeholder,
 }
 use chaintask/escrow_logic.{
-  validate_arbitrator_timeout, validate_auto_refund, validate_auto_release,
-  validate_builder_withdraw, validate_dispute, validate_refund, validate_release,
-  validate_resolve, validate_select, validate_submit, validate_update,
+  validate_amend_submission, validate_arbitrator_timeout, validate_auto_refund,
+  validate_auto_release, validate_builder_withdraw, validate_dispute,
+  validate_refund, validate_release, validate_resolve, validate_select,
+  validate_submit, validate_update,
 }
 use chaintask/types.{
   Disputed, EscrowDatum, GlobalConfig, Open, Selected, Submitted,
@@ -44,6 +45,8 @@ const treasury_vkh: ByteArray =
 const default_category: ByteArray = "design"
 
 const evidence_cid_a: ByteArray = "QmEvidence111111111111111111"
+
+const submission_cid_a: ByteArray = "QmSubmission11111111111111111"
 
 fn vk_address(vkh: ByteArray) -> Address {
   Address { payment_credential: VerificationKey(vkh), stake_credential: None }
@@ -89,6 +92,7 @@ fn fresh_open_datum() -> EscrowDatum {
     created_at: 1_700_000_000_000,
     selected_at: None,
     submitted_at: None,
+    submission_cid: None,
     auto_release_deadline: default_auto_release_seconds,
     auto_refund_deadline: default_auto_refund_seconds,
     dispute_raised_by: None,
@@ -393,10 +397,11 @@ test submit_happy_path() {
     EscrowDatum {
       ..old,
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: Some(submission_cid_a),
       status: Submitted,
     }
   let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
-  validate_submit(tx, own_ref(), old)
+  validate_submit(tx, own_ref(), old, submission_cid_a)
 }
 
 test submit_rejected_when_signed_by_client() {
@@ -411,10 +416,11 @@ test submit_rejected_when_signed_by_client() {
     EscrowDatum {
       ..old,
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: Some(submission_cid_a),
       status: Submitted,
     }
   let tx = mk_tx(old, [continuing_script_output(new)], [client_vkh])
-  !validate_submit(tx, own_ref(), old)
+  !validate_submit(tx, own_ref(), old, submission_cid_a)
 }
 
 test submit_rejected_when_status_is_open() {
@@ -424,10 +430,260 @@ test submit_rejected_when_status_is_open() {
     EscrowDatum {
       ..old,
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: Some(submission_cid_a),
       status: Submitted,
     }
   let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
-  !validate_submit(tx, own_ref(), old)
+  !validate_submit(tx, own_ref(), old, submission_cid_a)
+}
+
+test submit_rejected_when_cid_mismatched() {
+  // Builder claims one CID in the redeemer but writes a different one to the
+  // datum. Must fail — otherwise the submission_cid on chain wouldn't
+  // necessarily match what the client agreed to review.
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      status: Selected,
+    }
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_000_000),
+      submission_cid: Some("QmDifferentCid000000000000000"),
+      status: Submitted,
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_submit(tx, own_ref(), old, submission_cid_a)
+}
+
+test submit_rejected_when_submission_cid_none() {
+  // Builder must actually set the CID — None is not a valid submission.
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      status: Selected,
+    }
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
+      status: Submitted,
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_submit(tx, own_ref(), old, submission_cid_a)
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// AmendSubmission tests
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Amend lets the builder replace their submission_cid with a revised one
+// while status is still Submitted. submitted_at must advance (resetting
+// the client's review window); everything else is frozen.
+
+// A second submission CID, distinct from submission_cid_a, used as the
+// "revised" target across Amend tests.
+const submission_cid_b: ByteArray = "QmSubmission22222222222222222"
+
+// A canonical post-Submit datum to start Amend tests from. Everything that
+// would be set by a real Submit is set here.
+fn submitted_datum() -> EscrowDatum {
+  EscrowDatum {
+    ..fresh_open_datum(),
+    builder_address: Some(builder_addr()),
+    selected_at: Some(1_700_001_000_000),
+    submitted_at: Some(1_700_002_000_000),
+    submission_cid: Some(submission_cid_a),
+    status: Submitted,
+  }
+}
+
+test amend_happy_path() {
+  // Builder replaces submission_a with submission_b. submitted_at advances.
+  let old = submitted_datum()
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_signed_by_client() {
+  // Builder controls Amend, not client. A client-signed Amend must fail
+  // even if the proposed CID looks reasonable.
+  let old = submitted_datum()
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [client_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_status_is_open() {
+  // Can't Amend before there's a submission to amend.
+  // (Old datum has builder but still Open — could happen if someone
+  // mis-issues a redeemer; validator must reject on state.)
+  let old =
+    EscrowDatum { ..fresh_open_datum(), builder_address: Some(builder_addr()) }
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+      status: Submitted,
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_status_is_selected() {
+  // Selected but not yet Submitted — should use Submit, not Amend.
+  let old =
+    EscrowDatum {
+      ..fresh_open_datum(),
+      builder_address: Some(builder_addr()),
+      selected_at: Some(1_700_001_000_000),
+      status: Selected,
+    }
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+      status: Submitted,
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_status_is_disputed() {
+  // Once a dispute is active, the arbitrator owns the outcome. Builder
+  // must not be able to swap the submission out from under them.
+  let old =
+    EscrowDatum {
+      ..submitted_datum(),
+      status: Disputed,
+      dispute_raised_by: Some(client_addr()),
+      dispute_raised_at: Some(1_700_003_000_000),
+      dispute_evidence_cid: Some(evidence_cid_a),
+    }
+  let new = EscrowDatum { ..old, submission_cid: Some(submission_cid_b) }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_output_cid_mismatches_redeemer() {
+  // Builder declares one CID in the redeemer but writes another to the
+  // datum. Same redeemer-vs-datum drift defense as Submit.
+  let old = submitted_datum()
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some("QmDecoy0000000000000000000000"),
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_submitted_at_not_advanced() {
+  // submitted_at must strictly advance — otherwise builder could submit
+  // garbage at day 13 and Amend at day 13 to the same time, robbing the
+  // client of meaningful review time.
+  let old = submitted_datum()
+  let new = EscrowDatum { ..old, submission_cid: Some(submission_cid_b) }
+  // ^ note: submitted_at NOT changed
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_submitted_at_goes_backwards() {
+  // Builder must not rewind time. Backwards submitted_at fails the strict
+  // monotonicity check.
+  let old = submitted_datum()
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_001_500_000),
+      // ^ earlier than old's 1_700_002_000_000
+      submission_cid: Some(submission_cid_b),
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_amount_changes() {
+  // Amount is frozen during Amend. Builder must not be able to bump the
+  // job price via Amend.
+  let old = submitted_datum()
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+      amount_lovelace: old.amount_lovelace * 2,
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_rejected_when_builder_changes() {
+  // Builder address is frozen. Original builder must not be able to
+  // hand the job off to a different builder via Amend.
+  let other_builder_vkh: ByteArray =
+    #"b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9b9"
+  let other_builder_addr = vk_address(other_builder_vkh)
+  let old = submitted_datum()
+  let new =
+    EscrowDatum {
+      ..old,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+      builder_address: Some(other_builder_addr),
+    }
+  let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
+  !validate_amend_submission(tx, own_ref(), old, submission_cid_b)
+}
+
+test amend_sequence_two_amends_still_valid() {
+  // Sanity check: two consecutive Amends should each independently
+  // pass validation. The state advances cleanly each time.
+  let v1 = submitted_datum()
+  let v2 =
+    EscrowDatum {
+      ..v1,
+      submitted_at: Some(1_700_002_500_000),
+      submission_cid: Some(submission_cid_b),
+    }
+  let v3 =
+    EscrowDatum {
+      ..v2,
+      submitted_at: Some(1_700_003_000_000),
+      submission_cid: Some("QmSubmission33333333333333333"),
+    }
+  let tx_a = mk_tx(v1, [continuing_script_output(v2)], [builder_vkh])
+  let tx_b = mk_tx(v2, [continuing_script_output(v3)], [builder_vkh])
+  and {
+    validate_amend_submission(tx_a, own_ref(), v1, submission_cid_b),
+    validate_amend_submission(
+      tx_b,
+      own_ref(),
+      v2,
+      "QmSubmission33333333333333333",
+    ),
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -442,6 +698,7 @@ test release_happy_path() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -464,6 +721,7 @@ test release_rejected_with_only_client_sig() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let tx =
@@ -487,6 +745,7 @@ test release_rejected_when_skipping_treasury() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let tx =
@@ -506,6 +765,7 @@ test release_rejected_with_underpaid_treasury() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let tx =
@@ -527,6 +787,7 @@ test release_rejected_with_underpaid_builder() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let tx =
@@ -569,6 +830,7 @@ test release_min_floor_kicks_in_for_small_jobs() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
       amount_lovelace: 20_000_000,
     }
@@ -612,6 +874,7 @@ test refund_happy_path_from_submitted() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let tx =
@@ -706,6 +969,7 @@ test builder_withdraw_rejected_after_submit() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let new =
@@ -714,6 +978,7 @@ test builder_withdraw_rejected_after_submit() {
       builder_address: None,
       selected_at: None,
       submitted_at: None,
+      submission_cid: None,
       status: Open,
     }
   let tx = mk_tx(old, [continuing_script_output(new)], [builder_vkh])
@@ -751,6 +1016,7 @@ test dispute_happy_path_client_raised() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -779,6 +1045,7 @@ test dispute_happy_path_builder_raised() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -807,6 +1074,7 @@ test dispute_rejected_without_dispute_fee() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let new =
@@ -829,6 +1097,7 @@ test dispute_rejected_when_no_signatures() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -881,6 +1150,7 @@ test dispute_rejected_with_empty_evidence() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -912,6 +1182,7 @@ fn disputed_datum_client_raised() -> EscrowDatum {
     builder_address: Some(builder_addr()),
     selected_at: Some(1_700_001_000_000),
     submitted_at: Some(1_700_002_000_000),
+    submission_cid: None,
     status: Disputed,
     dispute_raised_by: Some(client_addr()),
     dispute_raised_at: Some(1_700_003_000_000),
@@ -988,6 +1259,7 @@ test resolve_rejected_when_status_not_disputed() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -1015,6 +1287,7 @@ test auto_release_happy_path_after_deadline() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(submitted_at_ms),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -1041,6 +1314,7 @@ test auto_release_rejected_before_deadline() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(submitted_at_ms),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -1068,6 +1342,7 @@ test auto_release_rejected_with_unbounded_validity() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(submitted_at_ms),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -1092,6 +1367,7 @@ test auto_release_rejected_when_not_signed_by_builder() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(submitted_at_ms),
+      submission_cid: None,
       status: Submitted,
     }
   let cfg = mock_config()
@@ -1163,6 +1439,7 @@ test auto_refund_rejected_after_submitted() {
       builder_address: Some(builder_addr()),
       selected_at: Some(selected_at_ms),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Submitted,
     }
   let deadline_ms = selected_at_ms + 1_209_600 * 1000
@@ -1188,6 +1465,7 @@ test arbitrator_timeout_happy_path_client_raiser() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Disputed,
       dispute_raised_by: Some(client_addr()),
       dispute_raised_at: Some(raised_at_ms),
@@ -1217,6 +1495,7 @@ test arbitrator_timeout_happy_path_builder_raiser() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Disputed,
       dispute_raised_by: Some(builder_addr()),
       dispute_raised_at: Some(raised_at_ms),
@@ -1246,6 +1525,7 @@ test arbitrator_timeout_rejected_before_deadline() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Disputed,
       dispute_raised_by: Some(client_addr()),
       dispute_raised_at: Some(raised_at_ms),
@@ -1275,6 +1555,7 @@ test arbitrator_timeout_rejected_when_non_raiser_signs() {
       builder_address: Some(builder_addr()),
       selected_at: Some(1_700_001_000_000),
       submitted_at: Some(1_700_002_000_000),
+      submission_cid: None,
       status: Disputed,
       dispute_raised_by: Some(client_addr()),
       dispute_raised_at: Some(raised_at_ms),

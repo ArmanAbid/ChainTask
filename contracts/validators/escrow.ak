@@ -19,14 +19,16 @@
 use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use chaintask/escrow_logic.{
-  validate_arbitrator_timeout, validate_auto_refund, validate_auto_release,
-  validate_builder_withdraw, validate_dispute, validate_refund, validate_release,
-  validate_resolve, validate_select, validate_submit, validate_update,
+  validate_amend_submission, validate_arbitrator_timeout, validate_auto_refund,
+  validate_auto_release, validate_builder_withdraw, validate_dispute,
+  validate_refund, validate_release, validate_resolve, validate_select,
+  validate_submit, validate_update,
 }
 use chaintask/tx_helpers.{find_global_config}
 use chaintask/types.{
-  Apply, ArbitratorTimeout, AutoRefund, AutoRelease, BuilderWithdraw, Dispute,
-  EscrowDatum, EscrowRedeemer, Refund, Release, Resolve, Select, Submit, Update,
+  AmendSubmission, Apply, ArbitratorTimeout, AutoRefund, AutoRelease,
+  BuilderWithdraw, Dispute, EscrowDatum, EscrowRedeemer, Refund, Release,
+  Resolve, Select, Submit, Update,
 }
 
 /// The validator is parameterized by the Admin Policy ID to securely locate 
@@ -45,7 +47,11 @@ validator escrow(admin_policy: PolicyId) {
 
       Select { builder } -> validate_select(tx, own_ref, d, builder)
 
-      Submit -> validate_submit(tx, own_ref, d)
+      Submit { submission_cid } ->
+        validate_submit(tx, own_ref, d, submission_cid)
+
+      AmendSubmission { new_submission_cid } ->
+        validate_amend_submission(tx, own_ref, d, new_submission_cid)
       Update { new_job_cid, new_amount_lovelace, new_category } -> {
         expect Some(config) = find_global_config(tx, admin_policy)
         validate_update(
