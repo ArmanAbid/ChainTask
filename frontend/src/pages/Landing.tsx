@@ -7,6 +7,13 @@ import { useWallet } from "@/hooks/useWallet";
 import { Icons } from "@/components/Icons";
 import { Reveal } from "@/components/Reveal";
 
+/**
+ * Landing page.
+ *
+ * Marketing content. All numbers come from PROTOCOL_PARAMS, which mirror
+ * the GlobalConfig the protocol will deploy with. Connect Wallet uses the
+ * real CIP-30 multi-wallet picker — clicking actually connects.
+ */
 export default function Landing() {
   const [showWallets, setShowWallets] = useState(false);
   const navigate = useNavigate();

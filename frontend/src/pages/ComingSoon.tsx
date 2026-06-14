@@ -1,4 +1,8 @@
-
+/**
+ * Placeholder for routes that don't exist yet. Used inside the AppShell
+ * so the sidebar nav is still visible — clicking a nav item shows the
+ * "this section ships in week X" message instead of a broken page.
+ */
 
 export function ComingSoonPage({ title }: { title: string }) {
   return (

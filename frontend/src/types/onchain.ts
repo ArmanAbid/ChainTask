@@ -1,4 +1,19 @@
-
+/**
+ * On-chain type mirrors.
+ *
+ * These types match the Aiken contract datums byte-for-byte after CBOR
+ * decoding. Use these for any data that came from the chain or is about
+ * to be put on the chain. For UI-friendly types, see ./domain.ts.
+ *
+ * Conventions:
+ *   - Addresses are bech32 strings (addr1..., addr_test1...).
+ *   - All ADA amounts are bigints in lovelace (1 ADA = 1_000_000 lovelace).
+ *   - Timestamps are bigints in POSIX milliseconds.
+ *   - Aiken's Option<T> maps to T | null.
+ *   - ByteArrays from chain are decoded to either:
+ *       - utf8 strings when semantically text (category, IPFS CID)
+ *       - hex strings when opaque bytes (script hashes, tx ids)
+ */
 
 // ────────────────────────────────────────────────────────────────────────
 // Status
@@ -29,6 +44,12 @@ export interface OnchainEscrowDatum {
   selectedAt: bigint | null;
   /** POSIX ms of when the builder submitted work. Null while Open/Selected. */
   submittedAt: bigint | null;
+  /**
+   * IPFS CID of the builder's work submission. Required when status is
+   * Submitted/Disputed; null while Open/Selected. Set by the Submit
+   * redeemer and frozen thereafter.
+   */
+  submissionCid: string | null;
   /** Relative seconds; auto-release triggers at submittedAt + this. */
   autoReleaseDeadlineSeconds: bigint;
   /** Relative seconds; auto-refund triggers at selectedAt + this. */
@@ -62,6 +83,25 @@ export interface OnchainReputationDatum {
 }
 
 // ────────────────────────────────────────────────────────────────────────
+// Profile datum
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Self-attested profile UTxO. One per wallet, lazily created the first
+ * time a user saves a profile. Independent from reputation — anyone can
+ * have a profile from day one.
+ *
+ * The profile content (display name, bio, avatar) lives off-chain on
+ * IPFS; only the pointing CID is on chain.
+ */
+export interface OnchainProfileDatum {
+  /** The wallet that owns this profile. */
+  ownerAddress: string;
+  /** IPFS CID of the profile JSON: `{ display_name, bio?, avatar_cid? }`. */
+  profileCid: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────
 // Global config (admin reference UTxO)
 // ────────────────────────────────────────────────────────────────────────
 
@@ -79,6 +119,10 @@ export interface OnchainGlobalConfig {
 // UTxO envelope
 // ────────────────────────────────────────────────────────────────────────
 
+/**
+ * A typed UTxO carrying a decoded datum. Wraps the bare Lucid UTxO with
+ * our decoded form so consumers don't have to know about CBOR.
+ */
 export interface TypedUtxo<T> {
   txHash: string;
   outputIndex: number;
@@ -90,4 +134,5 @@ export interface TypedUtxo<T> {
 
 export type EscrowUtxo = TypedUtxo<OnchainEscrowDatum>;
 export type ReputationUtxo = TypedUtxo<OnchainReputationDatum>;
+export type ProfileUtxo = TypedUtxo<OnchainProfileDatum>;
 export type GlobalConfigUtxo = TypedUtxo<OnchainGlobalConfig>;

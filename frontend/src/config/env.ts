@@ -1,3 +1,12 @@
+/**
+ * Typed environment configuration.
+ *
+ * All env vars MUST be prefixed with VITE_ so Vite exposes them to the
+ * browser. We validate at module load and fail loudly if anything required
+ * is missing — better to crash at boot than to silently hit production
+ * with a missing API key.
+ */
+
 import type { CardanoNetwork } from "@/types/domain";
 
 interface AppEnv {
@@ -13,10 +22,20 @@ interface AppEnv {
   escrowScriptAddress: string;
   /** Bech32 of the reputation validator script address. Empty until deploy. */
   reputationScriptAddress: string;
+  /** Bech32 of the profile validator script address. Empty until deploy. */
+  profileScriptAddress: string;
   /** Hex policy id of the admin NFT. Empty until deploy. */
   adminPolicyId: string;
   /** Hex asset name of the admin NFT. Empty until deploy. */
   adminAssetName: string;
+  /** Bech32 of the protocol treasury. Receives the platform cut on Release. */
+  treasuryAddress: string;
+  /**
+   * `<txHash>#<outputIndex>` of the GlobalConfig reference UTxO. The
+   * Release / Refund / Resolve redeemers read from this to know the
+   * treasury address, min job amount, platform cut, and dispute fee.
+   */
+  globalConfigOutRef: string;
 }
 
 function readNetwork(): CardanoNetwork {
@@ -65,6 +84,9 @@ export const env: AppEnv = {
   contractsDeployed: escrowScriptAddress.length > 0,
   escrowScriptAddress,
   reputationScriptAddress: readOptional("VITE_REPUTATION_SCRIPT_ADDRESS"),
+  profileScriptAddress: readOptional("VITE_PROFILE_SCRIPT_ADDRESS"),
   adminPolicyId: readOptional("VITE_ADMIN_POLICY_ID"),
   adminAssetName: readOptional("VITE_ADMIN_ASSET_NAME"),
+  treasuryAddress: readOptional("VITE_TREASURY_ADDRESS"),
+  globalConfigOutRef: readOptional("VITE_GLOBAL_CONFIG_OUTREF"),
 };

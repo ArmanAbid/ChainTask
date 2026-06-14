@@ -17,12 +17,12 @@ export type ConnectionState =
   | { status: "disconnected" }
   | { status: "connecting" }
   | {
-    status: "connected";
-    wallet: string;
-    address: string;
-    balanceAda: number;
-    isCorrectNetwork: boolean;
-  };
+      status: "connected";
+      wallet: string;
+      address: string;
+      balanceAda: number;
+      isCorrectNetwork: boolean;
+    };
 
 export function useWallet(): ConnectionState {
   const w = useWeldWallet(

@@ -1,4 +1,10 @@
-
+/**
+ * Dashboard — landing page after wallet connect.
+ *
+ * Shows KPI summary + active jobs list, role-aware. Lists are empty until
+ * contracts deploy (Week 7). Empty-state copy explains what's happening
+ * honestly — this is a hackathon build mid-development.
+ */
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -48,8 +54,8 @@ export default function Dashboard() {
         </h1>
         <div className="text-text-dim text-[13.5px]">
           {role === "client" ? "Jobs you've posted" :
-            role === "builder" ? "Jobs you're working on" :
-              "Disputes assigned to you"}
+           role === "builder" ? "Jobs you're working on" :
+           "Disputes assigned to you"}
         </div>
       </div>
 
@@ -108,24 +114,24 @@ function JobRow({ job, role }: { job: Job; role: string }) {
 
   const subText =
     job.status === "Completed" ? "released" :
-      job.status === "Submitted" ? "awaiting review" :
-        job.status === "Disputed" ? "in dispute" :
-          job.status === "Cancelled" ? "cancelled" :
-            "in progress";
+    job.status === "Submitted" ? "awaiting review" :
+    job.status === "Disputed"  ? "in dispute" :
+    job.status === "Cancelled" ? "cancelled" :
+    "in progress";
 
   const subColor =
     job.status === "Completed" ? "text-success" :
-      job.status === "Submitted" ? "text-warn" :
-        job.status === "Disputed" ? "text-danger" :
-          "text-text-faint";
+    job.status === "Submitted" ? "text-warn" :
+    job.status === "Disputed"  ? "text-danger" :
+    "text-text-faint";
 
   // Show countdown when relevant (auto-release / auto-refund).
   const countdownDate = job.status === "Submitted" ? job.autoReleaseAt
-    : job.status === "Selected" ? job.autoRefundAt
-      : null;
+                      : job.status === "Selected"  ? job.autoRefundAt
+                      : null;
   const countdownLabel = job.status === "Submitted" ? "auto-release in"
-    : job.status === "Selected" ? "auto-refund in"
-      : null;
+                       : job.status === "Selected"  ? "auto-refund in"
+                       : null;
 
   return (
     <Link
@@ -163,8 +169,8 @@ function EmptyJobList({ role }: { role: string }) {
     <div className="text-center py-16 px-6">
       <div className="text-[14px] text-text mb-1">
         {role === "client" ? "No jobs posted yet" :
-          role === "builder" ? "No active work" :
-            "No disputes assigned"}
+         role === "builder" ? "No active work" :
+         "No disputes assigned"}
       </div>
       <div className="text-[13px] text-text-dim max-w-[460px] mx-auto">
         {env.contractsDeployed ? (

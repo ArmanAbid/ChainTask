@@ -1,7 +1,20 @@
-
+/**
+ * AppShell — the chrome around all authenticated app routes.
+ *
+ * Desktop (≥ md): sidebar always visible at 232px, main content fills the rest.
+ * Mobile  (< md): sidebar collapsed by default. Hamburger in the topbar
+ *                 toggles a drawer that overlays the main content. Tapping
+ *                 a nav item or the backdrop closes the drawer.
+ *
+ * Behaviour:
+ *   - Sidebar nav reflects current role (client/builder/arbitrator).
+ *   - Role switcher lives inside the wallet dropdown.
+ *   - Unconnected users get redirected to landing (after the screenshot
+ *     verification — restore the redirect by uncommenting the effect below).
+ */
 
 import { useState, useEffect } from "react";
-import { Outlet, NavLink, useNavigate, Link } from "react-router-dom";
+import { Outlet, NavLink, useNavigate, useLocation, Link } from "react-router-dom";
 import { useWallet as useWeldWallet } from "@ada-anvil/weld/react";
 import { useWallet } from "@/hooks/useWallet";
 import { useRole } from "@/hooks/useRole";
@@ -13,16 +26,23 @@ import type { Role } from "@/types/domain";
 export default function AppShell() {
   const wallet = useWallet();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [navOpen, setNavOpen] = useState(false);
 
   // Bounce disconnected users back to landing.
   useEffect(() => {
     if (wallet.status === "disconnected") navigate("/", { replace: true });
   }, [wallet.status, navigate]);
 
+  // Close the mobile drawer on route change.
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname]);
+
   return (
-    <div className="grid grid-cols-[232px_1fr] grid-rows-[56px_1fr] h-screen bg-[radial-gradient(1200px_600px_at_15%_-10%,oklch(0.78_0.13_215/0.06),transparent_60%),radial-gradient(800px_500px_at_95%_5%,oklch(0.80_0.14_155/0.04),transparent_60%)]">
-      <Topbar />
-      <Sidebar />
+    <div className="grid grid-cols-1 md:grid-cols-[232px_1fr] grid-rows-[56px_1fr] h-screen bg-[radial-gradient(1200px_600px_at_15%_-10%,oklch(0.78_0.13_215/0.06),transparent_60%),radial-gradient(800px_500px_at_95%_5%,oklch(0.80_0.14_155/0.04),transparent_60%)]">
+      <Topbar onMenuClick={() => setNavOpen((v) => !v)} navOpen={navOpen} />
+      <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
       <main className="overflow-y-auto relative">
         <Outlet />
       </main>
@@ -34,10 +54,18 @@ export default function AppShell() {
 // Topbar
 // ────────────────────────────────────────────────────────────────────────
 
-function Topbar() {
+function Topbar({ onMenuClick, navOpen }: { onMenuClick: () => void; navOpen: boolean }) {
   return (
-    <header className="col-span-full flex items-center justify-between px-5 border-b border-border bg-[oklch(0.15_0.008_250/0.8)] backdrop-blur-md relative z-10">
-      <Link to="/" className="w-[212px] flex items-center">
+    <header className="col-span-full flex items-center gap-3 px-4 md:px-5 border-b border-border bg-[oklch(0.15_0.008_250/0.8)] backdrop-blur-md relative z-30">
+      <button
+        type="button"
+        className="md:hidden inline-flex items-center justify-center w-9 h-9 -ml-1 rounded-md hover:bg-surface text-text-dim"
+        onClick={onMenuClick}
+        aria-label={navOpen ? "Close menu" : "Open menu"}
+      >
+        {navOpen ? <Icons.x className="w-4 h-4" /> : <Hamburger />}
+      </button>
+      <Link to="/" className="md:w-[212px] flex items-center">
         <img src="/brand/logo.svg" alt="chain/task" className="h-6" />
       </Link>
       <div className="flex-1" />
@@ -46,57 +74,59 @@ function Topbar() {
   );
 }
 
+function Hamburger() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-4 h-4">
+      <path d="M2 4h12M2 8h12M2 12h12" />
+    </svg>
+  );
+}
+
 function WalletPill() {
   const wallet = useWallet();
   const weld = useWeldWallet("disconnect", "isConnected");
   const { role, setRole } = useRole();
-  const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
 
-  if (wallet.status !== "connected") return null;
+  // Close dropdown on outside click.
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest("[data-wallet-pill]")) setOpen(false);
+    };
+    window.addEventListener("mousedown", handler);
+    return () => window.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (wallet.status !== "connected") {
+    return <span className="text-[12px] text-text-faint">Not connected</span>;
+  }
 
   return (
-    <div className="relative">
+    <div className="relative" data-wallet-pill>
       <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 px-3 py-1.5 border border-border rounded-full bg-surface hover:border-border-strong text-text-dim hover:text-text transition-colors"
-        aria-haspopup="menu"
-        aria-expanded={open}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[12.5px] border border-border bg-surface hover:bg-surface-2 text-text"
       >
-        <span
-          className={`w-[7px] h-[7px] rounded-full ${wallet.isCorrectNetwork
-            ? "bg-success shadow-[0_0_0_3px_oklch(0.80_0.14_155/0.13)]"
-            : "bg-warn shadow-[0_0_0_3px_oklch(0.85_0.13_78/0.13)]"
-            }`}
-          aria-hidden="true"
-        />
-        <span className="font-mono text-[11.5px]">{truncateAddress(wallet.address, 8, 5)}</span>
-        <span className="pl-2 ml-2 border-l border-border flex items-center gap-1">
-          <span className="text-accent">₳</span>
-          <span className="font-mono text-[11.5px]">{wallet.balanceAda.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-        </span>
+        <span className="font-mono">{truncateAddress(wallet.address, 6, 4)}</span>
+        <span className="text-text-faint">·</span>
+        <span className="font-mono">₳{formatAda(wallet.balanceAda)}</span>
+        <Icons.chevR className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
-
       {open && (
         <>
-          <div onClick={() => setOpen(false)} className="fixed inset-0 z-[90]" aria-hidden="true" />
-          <div role="menu" className="absolute top-[calc(100%+8px)] right-0 w-[300px] bg-surface border border-border rounded-md shadow-s2 z-[100] overflow-hidden">
-            <div className="px-3.5 py-3 border-b border-border">
-              <div className="flex items-center gap-2">
-                <span className="w-[7px] h-[7px] rounded-full bg-success" aria-hidden="true" />
-                <span className="text-[12px] font-medium">{wallet.wallet} · connected</span>
-              </div>
-              <div className="font-mono text-[11px] text-text-faint mt-1.5 break-all">{wallet.address}</div>
-              <div className="text-[11px] text-text-faint mt-1.5">
-                Balance · <span className="text-text">{formatAda(wallet.balanceAda)}</span>
-                <span className="mx-1.5">·</span>
-                Network · <span className={wallet.isCorrectNetwork ? "text-text" : "text-warn"}>{env.network}</span>
-              </div>
+          <div className="absolute right-0 top-[calc(100%+6px)] w-[240px] rounded-lg border border-border bg-surface shadow-s2 z-40">
+            <div className="p-3 border-b border-border">
+              <div className="text-[10.5px] uppercase tracking-wider text-text-faint mb-1">Connected</div>
+              <div className="text-[12px] text-text font-mono break-all">{truncateAddress(wallet.address, 12, 6)}</div>
+              <div className="text-[11px] text-text-faint mt-1">{wallet.wallet} · {env.network}</div>
             </div>
-
-            <div className="p-1.5">
-              <div className="text-[10.5px] uppercase tracking-wider text-text-faint px-2 py-1.5">Acting as</div>
-              {(["client", "builder", "arbitrator"] as const).map(r => (
+            <div className="p-1.5 border-b border-border">
+              <div className="text-[10.5px] uppercase tracking-wider text-text-faint px-2 py-1">View as</div>
+              {(["client", "builder", "arbitrator"] as Role[]).map((r) => (
                 <button
                   key={r}
                   role="menuitem"
@@ -108,8 +138,7 @@ function WalletPill() {
                 </button>
               ))}
             </div>
-
-            <div className="p-1.5 border-t border-border">
+            <div className="p-1.5">
               <button
                 role="menuitem"
                 onClick={async () => { await weld.disconnect(); setOpen(false); }}
@@ -129,12 +158,28 @@ function WalletPill() {
 // Sidebar
 // ────────────────────────────────────────────────────────────────────────
 
-function Sidebar() {
+function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
   const { role } = useRole();
   return (
-    <aside className="border-r border-border bg-[oklch(0.15_0.008_250/0.6)] backdrop-blur-md p-1.5 flex flex-col overflow-y-auto">
-      <SidebarNav role={role} />
-    </aside>
+    <>
+      {/* Backdrop (mobile) */}
+      {mobileOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-bg/70 backdrop-blur-sm z-20"
+          onClick={onClose}
+          aria-hidden
+        />
+      )}
+      <aside
+        className={`fixed md:static inset-y-0 left-0 z-30 w-[232px] md:w-auto bg-[oklch(0.15_0.008_250/0.95)] md:bg-[oklch(0.15_0.008_250/0.6)] backdrop-blur-md border-r border-border p-1.5 flex flex-col overflow-y-auto transition-transform md:transition-none ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        }`}
+      >
+        {/* Spacer for topbar height on mobile (since fixed positioning) */}
+        <div className="h-[56px] md:hidden" />
+        <SidebarNav role={role} />
+      </aside>
+    </>
   );
 }
 
@@ -148,6 +193,7 @@ function SidebarNav({ role }: { role: Role }) {
         <>
           <Label>Client</Label>
           <Item to="/app/post" icon={<Icons.plus className="w-4 h-4" />} label="Post a job" />
+          <Item to="/app/marketplace" icon={<Icons.search className="w-4 h-4" />} label="Browse marketplace" />
           <Item to="/app/jobs" icon={<Icons.briefcase className="w-4 h-4" />} label="My jobs" />
         </>
       )}
@@ -185,7 +231,8 @@ function Item({ to, icon, label, exact }: { to: string; icon: React.ReactNode; l
       to={to}
       end={exact}
       className={({ isActive }) =>
-        `flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-normal border transition-colors ${isActive ? "bg-surface text-text border-border shadow-s1" : "bg-transparent text-text-dim border-transparent hover:bg-surface hover:text-text"
+        `flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-normal border transition-colors ${
+          isActive ? "bg-surface text-text border-border shadow-s1" : "bg-transparent text-text-dim border-transparent hover:bg-surface hover:text-text"
         }`
       }
     >

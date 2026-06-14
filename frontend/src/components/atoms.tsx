@@ -6,7 +6,9 @@
  * skip for the hackathon. Add later if desired.
  */
 
-import type { JobStatus, BuilderReputation } from "@/types/domain";
+import type { JobStatus, BuilderReputation, Profile } from "@/types/domain";
+import { gatewayUrl } from "@/lib/ipfs";
+import { truncateAddress } from "@/lib/format";
 
 const STATUS_LABEL: Record<JobStatus, string> = {
   Open: "Open",
@@ -43,13 +45,34 @@ export function Ada({ amount, big = false }: { amount: number; big?: boolean }) 
   );
 }
 
-export function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" | "xl" }) {
-  // Pick a stable single-char display for the avatar.
+export function Avatar({
+  name,
+  src,
+  size = "md",
+}: {
+  name: string;
+  src?: string;
+  size?: "sm" | "md" | "lg" | "xl";
+}) {
+  // Pick a stable single-char display for the fallback.
   const ch = name.trim().charAt(0).toUpperCase() || "?";
   const dim = size === "xl" ? "w-[72px] h-[72px] text-[22px]"
             : size === "lg" ? "w-12 h-12 text-base"
             : size === "sm" ? "w-7 h-7 text-[11px]"
             : "w-8 h-8 text-[12px]";
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        className={`${dim} rounded-full object-cover border border-border flex-shrink-0`}
+        onError={(e) => {
+          // Replace broken image with the initial fallback.
+          (e.currentTarget as HTMLImageElement).style.display = "none";
+        }}
+      />
+    );
+  }
   return (
     <div className={`${dim} rounded-full inline-flex items-center justify-center font-semibold text-text bg-gradient-to-br from-surface-3 to-surface-2 border border-border flex-shrink-0`}>
       {ch}
@@ -113,4 +136,46 @@ export function Countdown({ at, label }: { at?: Date | number | null; label: str
 export function TxHash({ hash }: { hash: string }) {
   const short = hash.length > 12 ? `${hash.slice(0, 6)}…${hash.slice(-4)}` : hash;
   return <span className="font-mono text-[11.5px] text-text-faint hover:text-text-dim">tx · {short}</span>;
+}
+
+/**
+ * Resolved-name display for a wallet. Renders `Name · addr1q…4n8m`
+ * when a profile is present, otherwise just the truncated address.
+ *
+ * Names are self-attested so we ALWAYS show the verified address alongside.
+ * The address is the source of truth; the name is just a flavor annotation.
+ */
+export function Identity({
+  address,
+  profile,
+  size = "md",
+  showAvatar = false,
+}: {
+  address: string;
+  profile?: Profile | null;
+  size?: "sm" | "md" | "lg";
+  showAvatar?: boolean;
+}) {
+  const name = profile?.content?.displayName?.trim();
+  const avatarSrc = profile?.content?.avatarCid
+    ? gatewayUrl(profile.content.avatarCid)
+    : undefined;
+  const nameSize = size === "lg" ? "text-[14px]" : size === "sm" ? "text-[11.5px]" : "text-[13px]";
+  const addrSize = size === "lg" ? "text-[12px]" : size === "sm" ? "text-[10.5px]" : "text-[11.5px]";
+
+  return (
+    <span className="inline-flex items-center gap-2 min-w-0">
+      {showAvatar && <Avatar name={name || address} src={avatarSrc} size={size} />}
+      <span className="flex flex-col min-w-0 leading-tight">
+        {name ? (
+          <>
+            <span className={`${nameSize} font-medium truncate`}>{name}</span>
+            <span className={`${addrSize} text-text-faint font-mono truncate`}>{truncateAddress(address)}</span>
+          </>
+        ) : (
+          <span className={`${nameSize} text-text-dim font-mono truncate`}>{truncateAddress(address)}</span>
+        )}
+      </span>
+    </span>
+  );
 }

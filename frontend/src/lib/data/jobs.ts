@@ -82,19 +82,19 @@ async function toJob(escrow: EscrowUtxo): Promise<Job> {
   const status = escrow.datum.status as JobStatus;
   const autoReleaseAt = escrow.datum.submittedAt
     ? new Date(
-      Number(
-        escrow.datum.submittedAt +
-        escrow.datum.autoReleaseDeadlineSeconds * 1000n,
-      ),
-    )
+        Number(
+          escrow.datum.submittedAt +
+            escrow.datum.autoReleaseDeadlineSeconds * 1000n,
+        ),
+      )
     : null;
   const autoRefundAt = escrow.datum.selectedAt
     ? new Date(
-      Number(
-        escrow.datum.selectedAt +
-        escrow.datum.autoRefundDeadlineSeconds * 1000n,
-      ),
-    )
+        Number(
+          escrow.datum.selectedAt +
+            escrow.datum.autoRefundDeadlineSeconds * 1000n,
+        ),
+      )
     : null;
   // Arbitrator timeout is a constant 14 days (= 1_209_600 seconds) after
   // dispute_raised_at. Mirrors arbitrator_timeout_seconds in types.ak.
@@ -120,6 +120,7 @@ async function toJob(escrow: EscrowUtxo): Promise<Job> {
     submittedAt: escrow.datum.submittedAt
       ? new Date(Number(escrow.datum.submittedAt))
       : null,
+    submissionCid: escrow.datum.submissionCid,
     autoReleaseAt,
     autoRefundAt,
     disputeRaisedBy: escrow.datum.disputeRaisedBy,

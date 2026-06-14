@@ -1,4 +1,14 @@
-
+/**
+ * Domain types — display-ready forms the UI components consume.
+ *
+ * Two main differences from ./onchain.ts:
+ *   - ADA amounts as plain numbers (since 1 ADA fits easily in JS number)
+ *     for math + formatting, with lovelace kept as bigint where precision matters
+ *   - Timestamps as JS Date objects so React components can format them
+ *
+ * Convert between layers using the helpers in src/lib/format.ts and the
+ * decoders in src/lib/cardano/decoders.ts.
+ */
 
 import type { OnchainStatus } from "./onchain";
 
@@ -6,6 +16,11 @@ import type { OnchainStatus } from "./onchain";
 // Status (frontend-only extensions)
 // ────────────────────────────────────────────────────────────────────────
 
+/**
+ * Frontend job status extends on-chain status with terminal states that
+ * don't exist on chain. A "completed" job has no escrow UTxO anymore — it
+ * was reconstructed from chain history. Same for "cancelled".
+ */
 export type JobStatus =
   | "Open"
   | "Selected"
@@ -51,6 +66,8 @@ export interface Job {
   createdAt: Date;
   selectedAt: Date | null;
   submittedAt: Date | null;
+  /** IPFS CID of the builder's work submission. Null while not Submitted. */
+  submissionCid: string | null;
   /** When auto-release will trigger if no client action. Null while not Submitted. */
   autoReleaseAt: Date | null;
   /** When auto-refund will trigger if no builder submission. Null while not Selected. */
@@ -79,6 +96,37 @@ export interface BuilderReputation {
   lastActiveAt: Date;
   /** Up to 10 most recent completed-job IPFS CIDs, newest first. */
   recentJobCids: string[];
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Profile (self-attested)
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * The off-chain content pointed to by a Profile UTxO's profile_cid.
+ * Schema: this is the IPFS-pinned JSON.
+ */
+export interface ProfileContent {
+  /** Display name shown next to the address. Required. */
+  displayName: string;
+  /** Free-form short bio. Optional. */
+  bio?: string;
+  /** IPFS CID of an avatar image. Optional. */
+  avatarCid?: string;
+}
+
+/**
+ * Combined view of a profile: the chain UTxO + the resolved off-chain content.
+ *
+ * Profiles are self-attested — anyone can claim any name. The UI should
+ * make this clear by always showing the verified wallet address alongside
+ * the name.
+ */
+export interface Profile {
+  ownerAddress: string;
+  profileCid: string;
+  /** Resolved off-chain content. Null if the IPFS fetch failed. */
+  content: ProfileContent | null;
 }
 
 // ────────────────────────────────────────────────────────────────────────
