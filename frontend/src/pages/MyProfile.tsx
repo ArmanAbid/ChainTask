@@ -206,21 +206,7 @@ function ViewPanel({
 
 function DraftBanner() {
   return (
-    <div className="card p-4 mb-6 border-accent-line">
-      <div className="flex items-start gap-3">
-        <Icons.clock className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
-        <div>
-          <div className="text-[13px] font-medium text-accent mb-0.5">
-            Saved as draft
-          </div>
-          <div className="text-[12.5px] text-text-dim">
-            Your profile is pinned to IPFS and visible locally. It will be
-            written on-chain when the profile validator deploys (Week 7),
-            making it visible to everyone.
-          </div>
-        </div>
-      </div>
-    </div>
+    <></>
   );
 }
 
@@ -267,8 +253,8 @@ function EditPanel({
     displayName.length === 0
       ? "Required"
       : displayName.length > MAX_NAME
-      ? `Max ${MAX_NAME} characters`
-      : null;
+        ? `Max ${MAX_NAME} characters`
+        : null;
   const bioError = bio.length > MAX_BIO ? `Max ${MAX_BIO} characters` : null;
 
   async function handleAvatar(file: File) {
