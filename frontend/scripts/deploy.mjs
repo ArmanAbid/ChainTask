@@ -10,37 +10,26 @@
  *   - frontend/.env.local                        (env vars)
  *   - frontend/src/lib/tx/scripts.ts             (compiled CBOR constants)
  *
- * After this finishes, the frontend's `contractsDeployed` flag flips to
- * true and the chain reads start returning real data instead of empty
- * arrays.
- *
  * USAGE
  * -----
- *   1. Make sure contracts/ has been built recently:
+ *   1. Make sure contracts are built:
  *        cd contracts && aiken build && cd ..
  *
- *   2. Make sure you have these env vars set (in shell or .env.local):
- *        DEPLOY_SEED       — 24-word BIP39 seed phrase for the deploy wallet
- *                            (this wallet should be funded with ~5 tADA on Preview)
+ *   2. Set these env vars in your shell:
+ *        DEPLOY_SEED       — seed phrase for the deploy wallet
  *        BLOCKFROST_KEY    — Blockfrost Preview project ID
- *        TREASURY_ADDRESS  — bech32 of the wallet that should receive platform fees
- *                            (can be the same as the deploy wallet if you like)
+ *        TREASURY_ADDRESS  — bech32 address that receives platform fees
  *
  *   3. Run:
  *        node scripts/deploy.mjs
  *
- *   4. Check the printed output for the deploy tx hash, wait ~30s for
- *      confirmation, then verify on https://preview.cardanoscan.io/.
+ *   4. Wait for confirmation, then verify on https://preview.cardanoscan.io/
  *
- *   5. Restart the frontend dev server to pick up the new env values.
- *
- * SAFETY NOTES
- * ------------
- *   - The DEPLOY_SEED never leaves this script. Don't paste it anywhere.
- *   - This script is non-idempotent: running it twice deploys two
- *     separate admin policies and GlobalConfig UTxOs. The second
- *     overrides the first in the frontend env, but the first set of
- *     UTxOs and their tADA are stranded. Run it once.
+ * SAFETY
+ * ------
+ *   The DEPLOY_SEED only lives in your shell. Don't commit it. Use a
+ *   wallet that holds only testnet ADA — don't reuse a seed that
+ *   controls anything important.
  */
 
 import fs from "node:fs";
@@ -55,6 +44,7 @@ import {
   validatorToScriptHash,
   paymentCredentialOf,
   mintingPolicyToId,
+  getAddressDetails,
   fromText,
 } from "@lucid-evolution/lucid";
 
@@ -71,7 +61,6 @@ const SCRIPTS_FILE = path.join(ROOT, "src", "lib", "tx", "scripts.ts");
 const NETWORK = "Preview";
 const ADMIN_ASSET_NAME = "ChainTaskAdmin";
 
-// GlobalConfig values (mirror config/protocol.ts)
 const GLOBAL_CONFIG = {
   minJobAmountLovelace: 20_000_000n,        // 20 ADA
   platformCutPercent: 5n,                    // 5%
@@ -86,9 +75,9 @@ const DEPLOY_SEED = process.env.DEPLOY_SEED?.trim();
 const BLOCKFROST_KEY = process.env.BLOCKFROST_KEY?.trim();
 const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS?.trim();
 
-if (!DEPLOY_SEED) bail("DEPLOY_SEED env var is required (24-word seed phrase)");
+if (!DEPLOY_SEED) bail("DEPLOY_SEED env var is required");
 if (!BLOCKFROST_KEY) bail("BLOCKFROST_KEY env var is required");
-if (!TREASURY_ADDRESS) bail("TREASURY_ADDRESS env var is required (bech32)");
+if (!TREASURY_ADDRESS) bail("TREASURY_ADDRESS env var is required");
 
 function bail(msg) {
   console.error(`\n  ✗ ${msg}\n`);
@@ -160,7 +149,7 @@ async function main() {
   const adminCred = paymentCredentialOf(adminAddress);
   log(`  ✓ deploy wallet: ${adminAddress.slice(0, 20)}...${adminAddress.slice(-8)}\n`);
 
-  // Check balance — need enough for minting + GlobalConfig UTxO + fees
+  // Check balance
   const utxos = await lucid.wallet().getUtxos();
   const total = utxos.reduce((sum, u) => sum + (u.assets.lovelace ?? 0n), 0n);
   if (total < 5_000_000n) {
@@ -168,19 +157,17 @@ async function main() {
   }
   log(`  ✓ balance: ${(Number(total) / 1_000_000).toFixed(2)} tADA\n`);
 
-  // 3. Build the admin minting policy
-  //    Native script: requires admin's signature. After deploy, never re-sign
-  //    with this key to mint more admin NFTs. (Strictly: anyone with the key
-  //    can mint; for stronger one-shot guarantees use a Plutus minter that
-  //    consumes a specific UTxO. Acceptable for hackathon.)
+  // 3. Build the admin minting policy as a Native script.
+  //    Plain sig-required: anyone holding the admin key can mint, no one
+  //    else can. After deploy, don't sign with this key again to mint
+  //    more admin NFTs.
   log("Building admin minting policy...");
-  const adminPolicy = {
+  const adminNativeJson = {
     type: "all",
     scripts: [{ type: "sig", keyHash: adminCred.hash }],
   };
-  const adminPolicyScript = lucid.utils
-    ? lucid.utils.nativeScriptFromJson(adminPolicy)
-    : nativeScriptFromJsonFallback(adminPolicy);
+  const adminPolicyCbor = nativeScriptToCbor(adminNativeJson);
+  const adminPolicyScript = { type: "Native", script: adminPolicyCbor };
   const adminPolicyId = mintingPolicyToId(adminPolicyScript);
   const adminAssetNameHex = fromText(ADMIN_ASSET_NAME);
   const adminUnit = adminPolicyId + adminAssetNameHex;
@@ -215,13 +202,15 @@ async function main() {
   const globalConfigCbor = Data.to(globalConfigDatum, GlobalConfigSchema);
   log("  ✓ datum encoded\n");
 
-  // 6. Build, sign, submit the deploy tx:
+  // 6. Build, sign, submit the deploy tx
   //    - mint 1 admin NFT
   //    - send the NFT + 2 ADA + GlobalConfig datum back to admin address
+  //
+  //    Native scripts don't take a redeemer when minting — we pass undefined.
   log("Building deploy transaction...");
   const tx = await lucid
     .newTx()
-    .mintAssets({ [adminUnit]: 1n }, Data.void())
+    .mintAssets({ [adminUnit]: 1n })
     .attach.MintingPolicy(adminPolicyScript)
     .pay.ToAddressWithData(
       adminAddress,
@@ -236,8 +225,7 @@ async function main() {
   await lucid.awaitTx(txHash);
   log("  ✓ confirmed\n");
 
-  // 7. Find the GlobalConfig out-ref. After awaitTx the UTxO is queryable;
-  //    it's the output that holds the admin NFT.
+  // 7. Find the GlobalConfig out-ref by the admin NFT
   const adminUtxos = await lucid.wallet().getUtxos();
   const gcUtxo = adminUtxos.find((u) => (u.assets[adminUnit] ?? 0n) > 0n);
   if (!gcUtxo) bail("Could not locate GlobalConfig UTxO after confirmation");
@@ -265,26 +253,19 @@ async function main() {
   log(`  ✓ ${path.relative(ROOT, SCRIPTS_FILE)} updated\n`);
 
   log("✓ Deploy complete.\n");
-  log("Next: restart the dev server so Vite picks up the new env vars.");
-  log("      cd frontend && npm run dev\n");
+  log(`  View on cardanoscan: https://preview.cardanoscan.io/transaction/${txHash}`);
+  log("  Restart the dev server to pick up the new env values.\n");
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Helpers
+// Address helpers
 // ──────────────────────────────────────────────────────────────────────
-
-function log(msg) {
-  process.stdout.write(msg + "\n");
-}
 
 /**
  * Convert a bech32 address to the Plutus Address record. Mirrors
- * src/lib/tx/address.ts:bech32ToAddress so this script is standalone.
+ * src/lib/tx/address.ts:bech32ToAddress.
  */
 function bech32ToAddressRecord(bech32) {
-  // We use Lucid's getAddressDetails inside main(); duplicate the logic here.
-  // Importing dynamically because main is async.
-  const { getAddressDetails } = require("@lucid-evolution/lucid");
   const details = getAddressDetails(bech32);
   if (!details.paymentCredential) {
     throw new Error(`Address has no payment credential: ${bech32}`);
@@ -303,18 +284,97 @@ function bech32ToAddressRecord(bech32) {
   return { payment_credential, stake_credential: { Inline: [inner] } };
 }
 
-/**
- * Fallback constructor for native scripts in case lucid.utils isn't available.
- * Builds the same shape via direct field assignment.
- */
-function nativeScriptFromJsonFallback(json) {
-  return { type: "Native", script: JSON.stringify(json) };
+// ──────────────────────────────────────────────────────────────────────
+// Native script CBOR encoding (CIP-1854)
+//
+// We encode by hand because Lucid Evolution's helper for this has been
+// moving across releases. The CBOR shape per the spec:
+//
+//   native_script =
+//       [0, addr_keyhash]                    ; sig
+//     | [1, [* native_script]]                ; all
+//     | [2, [* native_script]]                ; any
+//     | [3, n, [* native_script]]             ; n-of-k
+//     | [4, slot]                             ; invalid_before
+//     | [5, slot]                             ; invalid_hereafter
+// ──────────────────────────────────────────────────────────────────────
+
+function nativeScriptToCbor(json) {
+  function encode(s) {
+    switch (s.type) {
+      case "sig":
+        return cborArray([cborInt(0), cborBytes(s.keyHash)]);
+      case "all":
+        return cborArray([cborInt(1), cborArray(s.scripts.map(encode))]);
+      case "any":
+        return cborArray([cborInt(2), cborArray(s.scripts.map(encode))]);
+      case "atLeast":
+        return cborArray([cborInt(3), cborInt(s.required), cborArray(s.scripts.map(encode))]);
+      case "before":
+        return cborArray([cborInt(4), cborInt(s.slot)]);
+      case "after":
+        return cborArray([cborInt(5), cborInt(s.slot)]);
+      default:
+        throw new Error(`Unknown native script type: ${s.type}`);
+    }
+  }
+  const buf = encode(json);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * Update (or create) the .env.local file with the new values.
- * Existing entries for these keys are replaced; everything else stays.
- */
+function cborInt(n) {
+  n = Number(n);
+  if (n < 0) throw new Error("negative ints not supported");
+  if (n < 24) return new Uint8Array([n]);
+  if (n < 256) return new Uint8Array([0x18, n]);
+  if (n < 65536) return new Uint8Array([0x19, (n >> 8) & 0xff, n & 0xff]);
+  if (n < 4294967296)
+    return new Uint8Array([0x1a, (n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]);
+  const buf = new Uint8Array(9);
+  buf[0] = 0x1b;
+  const big = BigInt(n);
+  for (let i = 0; i < 8; i++) buf[8 - i] = Number((big >> BigInt(8 * i)) & 0xffn);
+  return buf;
+}
+
+function cborBytes(hex) {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  const len = lenHeader(0x40, bytes.length);
+  return concat(len, bytes);
+}
+
+function cborArray(items) {
+  const len = lenHeader(0x80, items.length);
+  return concat(len, ...items);
+}
+
+function lenHeader(major, len) {
+  if (len < 24) return new Uint8Array([major | len]);
+  if (len < 256) return new Uint8Array([major | 24, len]);
+  if (len < 65536) return new Uint8Array([major | 25, (len >> 8) & 0xff, len & 0xff]);
+  throw new Error(`length too large: ${len}`);
+}
+
+function concat(...arrs) {
+  const total = arrs.reduce((s, a) => s + a.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const a of arrs) {
+    out.set(a, off);
+    off += a.length;
+  }
+  return out;
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// File output helpers
+// ──────────────────────────────────────────────────────────────────────
+
+function log(msg) {
+  process.stdout.write(msg + "\n");
+}
+
 function writeEnvFile(updates) {
   let existing = "";
   if (fs.existsSync(ENV_FILE)) {
@@ -335,10 +395,6 @@ function writeEnvFile(updates) {
   fs.writeFileSync(ENV_FILE, final);
 }
 
-/**
- * Update src/lib/tx/scripts.ts with the compiled CBOR. Replaces the three
- * empty-string constants in-place.
- */
 function writeScriptsFile({ escrow, reputation, profile }) {
   let src = fs.readFileSync(SCRIPTS_FILE, "utf8");
   src = src.replace(
