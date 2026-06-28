@@ -27,15 +27,20 @@ import {
   EscrowRedeemer,
   ProfileDatum,
   ProfileRedeemer,
+  ReputationDatum,
+  ReputationRedeemer,
   type EscrowDatumT,
   type ProfileDatumT,
+  type ReputationDatumT,
 } from "./schemas";
 import { addressToBech32, bech32ToAddress } from "./address";
 import {
   escrowAddress,
   getEscrowValidator,
   getProfileValidator,
+  getReputationValidator,
   profileAddress,
+  reputationAddress,
 } from "./scripts";
 
 // ────────────────────────────────────────────────────────────────────────
@@ -70,6 +75,128 @@ async function findEscrowUtxo(
     );
   }
   return utxos[0];
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Reputation helpers
+//
+// The reputation validator enforces that any spend of a builder's
+// reputation UTxO must coincide with a matching escrow event in the same
+// tx (Release, BuilderWithdraw, Resolve, AutoRelease, ArbitratorTimeout).
+// The escrow validator does NOT require a reputation update, so we treat
+// reputation as an optional but always-attempted side effect:
+//
+//   - If builder has no reputation UTxO: create one lazily (no validator
+//     runs because nothing is being spent on the reputation side).
+//   - If builder has a reputation UTxO: spend it with the matching
+//     IncrementOn* redeemer and re-create with updated counters. The
+//     reputation validator enforces correctness.
+//
+// Minimum lovelace held by a reputation UTxO. Datum is ~256 bytes; 2 ADA
+// is safe under Cardano's min-utxo formula.
+// ────────────────────────────────────────────────────────────────────────
+
+const REPUTATION_UTXO_LOVELACE = 2_000_000n;
+const MAX_RECENT_JOBS = 10;
+
+/**
+ * Find a builder's reputation UTxO at the reputation script address.
+ * Returns null if none exists yet (first job).
+ */
+async function findReputationUtxo(
+  lucid: LucidEvolution,
+  builderPaymentHex: string,
+): Promise<{ utxo: UTxO; datum: ReputationDatumT } | null> {
+  const repAddr = reputationAddress();
+  const utxos = await lucid.utxosAt(repAddr);
+  for (const u of utxos) {
+    if (!u.datum) continue;
+    try {
+      const d = Data.from<ReputationDatumT>(u.datum, ReputationDatum);
+      const hex =
+        "VerificationKey" in d.builder_address.payment_credential
+          ? d.builder_address.payment_credential.VerificationKey[0]
+          : d.builder_address.payment_credential.Script[0];
+      if (hex === builderPaymentHex) {
+        return { utxo: u, datum: d };
+      }
+    } catch {
+      // Skip undecodable datums — they're not ours.
+      continue;
+    }
+  }
+  return null;
+}
+
+/**
+ * Prepend a job CID to a builder's recent jobs list, capping at 10.
+ * Mirrors the on-chain `prepend_capped` helper exactly so the validator's
+ * equality check passes.
+ */
+function prependCapped(
+  cid: string,
+  list: string[],
+  cap = MAX_RECENT_JOBS,
+): string[] {
+  const next = [cid, ...list];
+  return next.length <= cap ? next : next.slice(0, cap);
+}
+
+/** Build initial reputation datum for a first-time release. */
+function initialRepDatumOnRelease(
+  builderAddress: ReputationDatumT["builder_address"],
+  volumeLovelace: bigint,
+  jobCidHex: string,
+  timestamp: bigint,
+): ReputationDatumT {
+  return {
+    builder_address: builderAddress,
+    completed_jobs: 1n,
+    total_volume_lovelace: volumeLovelace,
+    disputes_won: 0n,
+    disputes_lost: 0n,
+    withdrawals: 0n,
+    first_job_timestamp: timestamp,
+    last_activity_timestamp: timestamp,
+    recent_job_cids: [jobCidHex],
+  };
+}
+
+/** Build initial reputation datum for a first-ever event being a withdrawal. */
+function initialRepDatumOnWithdraw(
+  builderAddress: ReputationDatumT["builder_address"],
+  timestamp: bigint,
+): ReputationDatumT {
+  return {
+    builder_address: builderAddress,
+    completed_jobs: 0n,
+    total_volume_lovelace: 0n,
+    disputes_won: 0n,
+    disputes_lost: 0n,
+    withdrawals: 1n,
+    first_job_timestamp: timestamp,
+    last_activity_timestamp: timestamp,
+    recent_job_cids: [],
+  };
+}
+
+/** Build initial reputation datum for a first-ever event being a dispute outcome. */
+function initialRepDatumOnDispute(
+  builderAddress: ReputationDatumT["builder_address"],
+  won: boolean,
+  timestamp: bigint,
+): ReputationDatumT {
+  return {
+    builder_address: builderAddress,
+    completed_jobs: 0n,
+    total_volume_lovelace: 0n,
+    disputes_won: won ? 1n : 0n,
+    disputes_lost: won ? 0n : 1n,
+    withdrawals: 0n,
+    first_job_timestamp: timestamp,
+    last_activity_timestamp: timestamp,
+    recent_job_cids: [],
+  };
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -233,10 +360,7 @@ export async function submitWork(
     status: "Submitted",
   };
 
-  const redeemer = Data.to(
-    { Submit: { submission_cid: submissionCidHex } },
-    EscrowRedeemer,
-  );
+  const redeemer = Data.to("Submit", EscrowRedeemer);
 
   const builderCred = paymentCredentialOf(await lucid.wallet().address());
   const tx = await lucid
@@ -304,9 +428,6 @@ export async function release(
     throw new Error("Builder payout would be non-positive after treasury cut.");
   }
 
-  // We need bech32 addresses for the outputs.
-  // The contract reads treasury_address from the GlobalConfig
-  // reference UTxO; we mirror it here for the actual payout.
   const treasuryBech32 = env.treasuryAddress;
   if (!treasuryBech32) {
     throw new Error(
@@ -314,22 +435,21 @@ export async function release(
     );
   }
 
-  const builderBech32 = oldDatum.builder_address;
-  const builderAddr = addressToBech32(builderBech32, env.network);
+  const builderPlutus = oldDatum.builder_address;
+  const builderAddr = addressToBech32(builderPlutus, env.network);
   if (!builderAddr) {
     throw new Error("Builder address decode failed; cannot pay out.");
   }
+  const builderPaymentHex =
+    "VerificationKey" in builderPlutus.payment_credential
+      ? builderPlutus.payment_credential.VerificationKey[0]
+      : builderPlutus.payment_credential.Script[0];
 
   const redeemer = Data.to("Release", EscrowRedeemer);
 
-  // Client + builder both sign Release.
   const clientCred = paymentCredentialOf(await lucid.wallet().address());
-  const builderCredHash =
-    "VerificationKey" in builderBech32.payment_credential
-      ? builderBech32.payment_credential.VerificationKey[0]
-      : builderBech32.payment_credential.Script[0];
+  const builderCredHash = builderPaymentHex;
 
-  // Need the GlobalConfig reference UTxO for the validator's config read.
   if (!env.globalConfigOutRef) {
     throw new Error(
       "GlobalConfig out-ref not configured (VITE_GLOBAL_CONFIG_OUTREF). Required to release.",
@@ -343,7 +463,18 @@ export async function release(
     throw new Error("GlobalConfig reference UTxO not found on chain.");
   }
 
-  const tx = await lucid
+  // ── Reputation cross-validator wiring ──
+  //
+  // The reputation validator requires that an IncrementOnRelease redeemer
+  // is paired with an escrow input being spent with Release (or
+  // AutoRelease). We satisfy that here. If the builder has no rep UTxO
+  // yet, we just create one and don't spend anything — no rep validator
+  // runs in that case.
+  const timestamp = nowMs();
+  const existingRep = await findReputationUtxo(lucid, builderPaymentHex);
+  const repAddr = reputationAddress();
+
+  let txBuilder = lucid
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
@@ -351,9 +482,59 @@ export async function release(
     .pay.ToAddress(builderAddr, { lovelace: builderPayout })
     .pay.ToAddress(treasuryBech32, { lovelace: treasuryCut })
     .addSignerKey(clientCred.hash)
-    .addSignerKey(builderCredHash)
-    .complete();
+    .addSignerKey(builderCredHash);
 
+  if (existingRep) {
+    // Spend + replace the existing reputation UTxO.
+    const repValidator = getReputationValidator();
+    if (!repValidator) {
+      throw new Error("Reputation validator not configured");
+    }
+    const repRedeemer = Data.to(
+      {
+        IncrementOnRelease: {
+          volume: amount,
+          timestamp,
+          job_cid: oldDatum.job_cid,
+        },
+      },
+      ReputationRedeemer,
+    );
+    const newRepDatum: ReputationDatumT = {
+      ...existingRep.datum,
+      completed_jobs: existingRep.datum.completed_jobs + 1n,
+      total_volume_lovelace:
+        existingRep.datum.total_volume_lovelace + amount,
+      last_activity_timestamp: timestamp,
+      recent_job_cids: prependCapped(
+        oldDatum.job_cid,
+        existingRep.datum.recent_job_cids,
+      ),
+    };
+    txBuilder = txBuilder
+      .collectFrom([existingRep.utxo], repRedeemer)
+      .attach.SpendingValidator(repValidator)
+      .pay.ToAddressWithData(
+        repAddr,
+        { kind: "inline", value: Data.to(newRepDatum, ReputationDatum) },
+        { lovelace: existingRep.utxo.assets.lovelace ?? REPUTATION_UTXO_LOVELACE },
+      );
+  } else {
+    // Lazy-create — no rep validator runs because we're not spending one.
+    const initialRep = initialRepDatumOnRelease(
+      builderPlutus,
+      amount,
+      oldDatum.job_cid,
+      timestamp,
+    );
+    txBuilder = txBuilder.pay.ToAddressWithData(
+      repAddr,
+      { kind: "inline", value: Data.to(initialRep, ReputationDatum) },
+      { lovelace: REPUTATION_UTXO_LOVELACE },
+    );
+  }
+
+  const tx = await txBuilder.complete();
   const signed = await tx.sign.withWallet().complete();
   return signed.submit();
 }
@@ -451,6 +632,400 @@ export async function updateProfile(
       { lovelace: profileUtxoLovelace },
     )
     .complete();
+  const signed = await tx.sign.withWallet().complete();
+  return signed.submit();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// refund — mutual cancellation
+//
+// Both client + builder sign; status must be Selected or Submitted.
+// Full amount returned to client (no platform fee on mutual cancel).
+// ────────────────────────────────────────────────────────────────────────
+
+export interface RefundInput {
+  jobId: string;
+}
+
+export async function refund(
+  lucid: LucidEvolution,
+  input: RefundInput,
+): Promise<string> {
+  const validator = getEscrowValidator();
+  if (!validator) throw new Error("Escrow validator not configured");
+
+  const utxo = await findEscrowUtxo(lucid, input.jobId);
+  if (!utxo.datum) throw new Error("Job UTxO has no inline datum");
+  const oldDatum = Data.from<EscrowDatumT>(utxo.datum, EscrowDatum);
+  if (oldDatum.status !== "Selected" && oldDatum.status !== "Submitted") {
+    throw new Error(
+      `Refund requires Selected or Submitted status; this job is ${oldDatum.status}`,
+    );
+  }
+  if (!oldDatum.builder_address) {
+    throw new Error("Job has no builder — nothing to refund mutually");
+  }
+
+  const clientAddr = addressToBech32(oldDatum.client_address, env.network);
+  if (!clientAddr) throw new Error("Could not decode client bech32");
+
+  const clientCredHash =
+    "VerificationKey" in oldDatum.client_address.payment_credential
+      ? oldDatum.client_address.payment_credential.VerificationKey[0]
+      : oldDatum.client_address.payment_credential.Script[0];
+  const builderCredHash =
+    "VerificationKey" in oldDatum.builder_address.payment_credential
+      ? oldDatum.builder_address.payment_credential.VerificationKey[0]
+      : oldDatum.builder_address.payment_credential.Script[0];
+
+  const redeemer = Data.to("Refund", EscrowRedeemer);
+  const tx = await lucid
+    .newTx()
+    .collectFrom([utxo], redeemer)
+    .attach.SpendingValidator(validator)
+    .pay.ToAddress(clientAddr, { lovelace: oldDatum.amount_lovelace })
+    .addSignerKey(clientCredHash)
+    .addSignerKey(builderCredHash)
+    .complete();
+
+  const signed = await tx.sign.withWallet().complete();
+  return signed.submit();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// builderWithdraw — builder leaves a Selected job before submitting
+//
+// Builder signs alone. Escrow resets to Open (builder_address = null,
+// selected_at = null); funds stay locked at script address.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface BuilderWithdrawInput {
+  jobId: string;
+}
+
+export async function builderWithdraw(
+  lucid: LucidEvolution,
+  input: BuilderWithdrawInput,
+): Promise<string> {
+  const validator = getEscrowValidator();
+  if (!validator) throw new Error("Escrow validator not configured");
+
+  const utxo = await findEscrowUtxo(lucid, input.jobId);
+  if (!utxo.datum) throw new Error("Job UTxO has no inline datum");
+  const oldDatum = Data.from<EscrowDatumT>(utxo.datum, EscrowDatum);
+  if (oldDatum.status !== "Selected") {
+    throw new Error(
+      `Withdraw requires Selected status; this job is ${oldDatum.status}`,
+    );
+  }
+  if (!oldDatum.builder_address) {
+    throw new Error("Job has no builder assigned");
+  }
+
+  const newDatum: EscrowDatumT = {
+    ...oldDatum,
+    builder_address: null,
+    selected_at: null,
+    status: "Open",
+  };
+
+  const builderPlutus = oldDatum.builder_address;
+  const builderCredHash =
+    "VerificationKey" in builderPlutus.payment_credential
+      ? builderPlutus.payment_credential.VerificationKey[0]
+      : builderPlutus.payment_credential.Script[0];
+
+  const redeemer = Data.to("BuilderWithdraw", EscrowRedeemer);
+
+  // Reputation cross-validator: spend or create rep UTxO with
+  // IncrementOnWithdraw redeemer.
+  const timestamp = nowMs();
+  const existingRep = await findReputationUtxo(lucid, builderCredHash);
+  const repAddr = reputationAddress();
+
+  let txBuilder = lucid
+    .newTx()
+    .collectFrom([utxo], redeemer)
+    .attach.SpendingValidator(validator)
+    .pay.ToAddressWithData(
+      utxo.address,
+      { kind: "inline", value: Data.to(newDatum, EscrowDatum) },
+      utxo.assets,
+    )
+    .addSignerKey(builderCredHash);
+
+  if (existingRep) {
+    const repValidator = getReputationValidator();
+    if (!repValidator) {
+      throw new Error("Reputation validator not configured");
+    }
+    const repRedeemer = Data.to(
+      { IncrementOnWithdraw: { timestamp } },
+      ReputationRedeemer,
+    );
+    const newRepDatum: ReputationDatumT = {
+      ...existingRep.datum,
+      withdrawals: existingRep.datum.withdrawals + 1n,
+      last_activity_timestamp: timestamp,
+    };
+    txBuilder = txBuilder
+      .collectFrom([existingRep.utxo], repRedeemer)
+      .attach.SpendingValidator(repValidator)
+      .pay.ToAddressWithData(
+        repAddr,
+        { kind: "inline", value: Data.to(newRepDatum, ReputationDatum) },
+        { lovelace: existingRep.utxo.assets.lovelace ?? REPUTATION_UTXO_LOVELACE },
+      );
+  } else {
+    const initialRep = initialRepDatumOnWithdraw(builderPlutus, timestamp);
+    txBuilder = txBuilder.pay.ToAddressWithData(
+      repAddr,
+      { kind: "inline", value: Data.to(initialRep, ReputationDatum) },
+      { lovelace: REPUTATION_UTXO_LOVELACE },
+    );
+  }
+
+  const tx = await txBuilder.complete();
+  const signed = await tx.sign.withWallet().complete();
+  return signed.submit();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// dispute — either party raises a dispute
+//
+// Raiser signs (client OR builder). Adds dispute fee to the UTxO,
+// pins evidence CID in datum, advances status to Disputed.
+// ────────────────────────────────────────────────────────────────────────
+
+export interface DisputeInput {
+  jobId: string;
+  evidenceCid: string;
+  raiserSide: "client" | "builder";
+}
+
+export async function dispute(
+  lucid: LucidEvolution,
+  input: DisputeInput,
+): Promise<string> {
+  const validator = getEscrowValidator();
+  if (!validator) throw new Error("Escrow validator not configured");
+
+  const utxo = await findEscrowUtxo(lucid, input.jobId);
+  if (!utxo.datum) throw new Error("Job UTxO has no inline datum");
+  const oldDatum = Data.from<EscrowDatumT>(utxo.datum, EscrowDatum);
+  if (oldDatum.status !== "Selected" && oldDatum.status !== "Submitted") {
+    throw new Error(
+      `Dispute requires Selected or Submitted status; this job is ${oldDatum.status}`,
+    );
+  }
+  if (!oldDatum.builder_address) {
+    throw new Error("Cannot dispute a job with no builder");
+  }
+
+  const evidenceHex = stringToHex(input.evidenceCid);
+  const raiserAddress =
+    input.raiserSide === "client"
+      ? oldDatum.client_address
+      : oldDatum.builder_address;
+  const raiserCredHash =
+    "VerificationKey" in raiserAddress.payment_credential
+      ? raiserAddress.payment_credential.VerificationKey[0]
+      : raiserAddress.payment_credential.Script[0];
+
+  const newDatum: EscrowDatumT = {
+    ...oldDatum,
+    dispute_raised_by: raiserAddress,
+    dispute_raised_at: nowMs(),
+    dispute_evidence_cid: evidenceHex,
+    status: "Disputed",
+  };
+
+  const disputeFee = BigInt(PROTOCOL_PARAMS.disputeFee * 1_000_000);
+  const newLockedLovelace = oldDatum.amount_lovelace + disputeFee;
+
+  const redeemer = Data.to(
+    { Dispute: { evidence_cid: evidenceHex } },
+    EscrowRedeemer,
+  );
+
+  if (!env.globalConfigOutRef) {
+    throw new Error("VITE_GLOBAL_CONFIG_OUTREF not set");
+  }
+  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
+  const gcUtxos = await lucid.utxosByOutRef([
+    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
+  ]);
+
+  const tx = await lucid
+    .newTx()
+    .collectFrom([utxo], redeemer)
+    .attach.SpendingValidator(validator)
+    .readFrom(gcUtxos)
+    .pay.ToAddressWithData(
+      utxo.address,
+      { kind: "inline", value: Data.to(newDatum, EscrowDatum) },
+      { lovelace: newLockedLovelace },
+    )
+    .addSignerKey(raiserCredHash)
+    .complete();
+
+  const signed = await tx.sign.withWallet().complete();
+  return signed.submit();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// resolve — arbitrator decides a Disputed job
+//
+// Arbitrator + winning party sign. Distributes funds per direction:
+//   releaseToBuilder = true:  builder gets ~95%, treasury gets 5% + dispute fee
+//   releaseToBuilder = false: client gets 100%, treasury gets dispute fee
+// ────────────────────────────────────────────────────────────────────────
+
+export interface ResolveInput {
+  jobId: string;
+  releaseToBuilder: boolean;
+}
+
+export async function resolve(
+  lucid: LucidEvolution,
+  input: ResolveInput,
+): Promise<string> {
+  const validator = getEscrowValidator();
+  if (!validator) throw new Error("Escrow validator not configured");
+
+  const utxo = await findEscrowUtxo(lucid, input.jobId);
+  if (!utxo.datum) throw new Error("Job UTxO has no inline datum");
+  const oldDatum = Data.from<EscrowDatumT>(utxo.datum, EscrowDatum);
+  if (oldDatum.status !== "Disputed") {
+    throw new Error(
+      `Resolve requires Disputed status; this job is ${oldDatum.status}`,
+    );
+  }
+  if (!oldDatum.builder_address) {
+    throw new Error("Cannot resolve a job with no builder");
+  }
+
+  const arbitratorAddr = addressToBech32(oldDatum.arbitrator_address, env.network);
+  const clientAddr = addressToBech32(oldDatum.client_address, env.network);
+  const builderAddr = addressToBech32(oldDatum.builder_address, env.network);
+  if (!arbitratorAddr || !clientAddr || !builderAddr) {
+    throw new Error("Address decode failed");
+  }
+
+  const arbitratorCredHash =
+    "VerificationKey" in oldDatum.arbitrator_address.payment_credential
+      ? oldDatum.arbitrator_address.payment_credential.VerificationKey[0]
+      : oldDatum.arbitrator_address.payment_credential.Script[0];
+
+  if (!env.treasuryAddress) {
+    throw new Error("VITE_TREASURY_ADDRESS not set");
+  }
+
+  const amount = oldDatum.amount_lovelace;
+  const cutPercent = BigInt(PROTOCOL_PARAMS.platformCutPercent);
+  const rawCut = (amount * cutPercent) / 100n;
+  const minUtxo = 1_500_000n;
+  const treasuryCut = rawCut < minUtxo ? minUtxo : rawCut;
+  const builderPayout = amount - treasuryCut;
+  const disputeFee = BigInt(PROTOCOL_PARAMS.disputeFee * 1_000_000);
+
+  const redeemer = Data.to(
+    { Resolve: { release_to_builder: input.releaseToBuilder } },
+    EscrowRedeemer,
+  );
+
+  if (!env.globalConfigOutRef) {
+    throw new Error("VITE_GLOBAL_CONFIG_OUTREF not set");
+  }
+  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
+  const gcUtxos = await lucid.utxosByOutRef([
+    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
+  ]);
+
+  let txBuilder = lucid
+    .newTx()
+    .collectFrom([utxo], redeemer)
+    .attach.SpendingValidator(validator)
+    .readFrom(gcUtxos)
+    .addSignerKey(arbitratorCredHash);
+
+  if (input.releaseToBuilder) {
+    const builderCredHash =
+      "VerificationKey" in oldDatum.builder_address.payment_credential
+        ? oldDatum.builder_address.payment_credential.VerificationKey[0]
+        : oldDatum.builder_address.payment_credential.Script[0];
+    txBuilder = txBuilder
+      .pay.ToAddress(builderAddr, { lovelace: builderPayout })
+      .pay.ToAddress(env.treasuryAddress, {
+        lovelace: treasuryCut + disputeFee,
+      })
+      .addSignerKey(builderCredHash);
+  } else {
+    const clientCredHash =
+      "VerificationKey" in oldDatum.client_address.payment_credential
+        ? oldDatum.client_address.payment_credential.VerificationKey[0]
+        : oldDatum.client_address.payment_credential.Script[0];
+    txBuilder = txBuilder
+      .pay.ToAddress(clientAddr, { lovelace: amount })
+      .pay.ToAddress(env.treasuryAddress, { lovelace: disputeFee })
+      .addSignerKey(clientCredHash);
+  }
+
+  // Reputation cross-validator: builder's win/loss is recorded.
+  // Per the reputation validator's `validate_increment_dispute_outcome`:
+  //   `won == release_to_builder` for Resolve
+  // So if releaseToBuilder=true, builder won. If false, builder lost.
+  const timestamp = nowMs();
+  const builderPlutus = oldDatum.builder_address;
+  const builderPaymentHex =
+    "VerificationKey" in builderPlutus.payment_credential
+      ? builderPlutus.payment_credential.VerificationKey[0]
+      : builderPlutus.payment_credential.Script[0];
+  const existingRep = await findReputationUtxo(lucid, builderPaymentHex);
+  const repAddr = reputationAddress();
+  const won = input.releaseToBuilder;
+
+  if (existingRep) {
+    const repValidator = getReputationValidator();
+    if (!repValidator) {
+      throw new Error("Reputation validator not configured");
+    }
+    const repRedeemer = Data.to(
+      { IncrementDisputeOutcome: { won, timestamp } },
+      ReputationRedeemer,
+    );
+    const newRepDatum: ReputationDatumT = {
+      ...existingRep.datum,
+      disputes_won: won
+        ? existingRep.datum.disputes_won + 1n
+        : existingRep.datum.disputes_won,
+      disputes_lost: won
+        ? existingRep.datum.disputes_lost
+        : existingRep.datum.disputes_lost + 1n,
+      last_activity_timestamp: timestamp,
+    };
+    txBuilder = txBuilder
+      .collectFrom([existingRep.utxo], repRedeemer)
+      .attach.SpendingValidator(repValidator)
+      .pay.ToAddressWithData(
+        repAddr,
+        { kind: "inline", value: Data.to(newRepDatum, ReputationDatum) },
+        { lovelace: existingRep.utxo.assets.lovelace ?? REPUTATION_UTXO_LOVELACE },
+      );
+  } else {
+    const initialRep = initialRepDatumOnDispute(
+      builderPlutus,
+      won,
+      timestamp,
+    );
+    txBuilder = txBuilder.pay.ToAddressWithData(
+      repAddr,
+      { kind: "inline", value: Data.to(initialRep, ReputationDatum) },
+      { lovelace: REPUTATION_UTXO_LOVELACE },
+    );
+  }
+
+  const tx = await txBuilder.complete();
   const signed = await tx.sign.withWallet().complete();
   return signed.submit();
 }

@@ -31,6 +31,7 @@ import {
 import { getBuilderReputation } from "@/lib/data/reputation";
 import { getProfileByOwner } from "@/lib/data/profile";
 import { getProtocolConfig } from "@/lib/data/config";
+import { listProposals } from "@/lib/ipfs";
 
 // ────────────────────────────────────────────────────────────────────────
 // Jobs
@@ -102,5 +103,19 @@ export function useProtocolConfig() {
     queryFn: () => getProtocolConfig(),
     // Config rarely changes; cache for longer.
     staleTime: 5 * 60_000,
+  });
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Proposals (off-chain, via IPFS metadata listing)
+// ────────────────────────────────────────────────────────────────────────
+
+export function useProposals(jobId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["proposals", jobId],
+    queryFn: () => (jobId ? listProposals(jobId) : []),
+    enabled: !!jobId,
+    // Proposals can change frequently as builders apply; don't cache long.
+    staleTime: 15_000,
   });
 }

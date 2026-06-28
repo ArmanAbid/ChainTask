@@ -17,17 +17,26 @@ import { useWallet as useWeldWallet } from "@ada-anvil/weld/react";
 import { pushToast } from "@/components/Toasts";
 import { getLucid } from "@/lib/tx/lucid";
 import {
+  builderWithdraw,
+  dispute,
   postJob,
+  refund,
   release,
+  resolve,
   selectBuilder,
   submitWork,
   updateProfile,
+  type BuilderWithdrawInput,
+  type DisputeInput,
   type PostJobInput,
+  type RefundInput,
   type ReleaseInput,
+  type ResolveInput,
   type SelectBuilderInput,
   type SubmitWorkInput,
   type UpdateProfileInput,
 } from "@/lib/tx/builders";
+import { pinProposal, type Proposal } from "@/lib/ipfs";
 
 function shortTxHash(hash: string): string {
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
@@ -108,4 +117,61 @@ export function useUpdateProfile() {
     (lucid, input) => updateProfile(lucid, input),
     [["profile"]],
   );
+}
+
+export function useRefund() {
+  return useTxMutation<RefundInput>(
+    ["tx", "refund"],
+    (lucid, input) => refund(lucid, input),
+    [["job"], ["jobs"], ["clientJobs"], ["builderJobs"]],
+  );
+}
+
+export function useBuilderWithdraw() {
+  return useTxMutation<BuilderWithdrawInput>(
+    ["tx", "builderWithdraw"],
+    (lucid, input) => builderWithdraw(lucid, input),
+    [["job"], ["jobs"], ["builderJobs"]],
+  );
+}
+
+export function useDispute() {
+  return useTxMutation<DisputeInput>(
+    ["tx", "dispute"],
+    (lucid, input) => dispute(lucid, input),
+    [["job"], ["jobs"]],
+  );
+}
+
+export function useResolve() {
+  return useTxMutation<ResolveInput>(
+    ["tx", "resolve"],
+    (lucid, input) => resolve(lucid, input),
+    [["job"], ["jobs"], ["reputation"]],
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Off-chain proposal pin
+//
+// Not a tx — just an IPFS write — but lives here for parity with other
+// write mutations and uniform toast/invalidation UX.
+// ────────────────────────────────────────────────────────────────────────
+
+export function usePinProposal() {
+  const queryClient = useQueryClient();
+  return useMutation<string, Error, Proposal>({
+    mutationKey: ["pin", "proposal"],
+    mutationFn: (p) => pinProposal(p),
+    onSuccess: (_cid, variables) => {
+      pushToast("Proposal submitted", "success");
+      queryClient.invalidateQueries({
+        queryKey: ["proposals", variables.jobId],
+      });
+    },
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "Failed to submit proposal";
+      pushToast(msg, "error");
+    },
+  });
 }

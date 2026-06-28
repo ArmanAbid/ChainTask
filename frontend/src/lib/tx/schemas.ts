@@ -119,6 +119,14 @@ export const EscrowDatum = EscrowDatumSchema as unknown as EscrowDatumT;
 //   ArbitratorTimeout.
 // ────────────────────────────────────────────────────────────────────────
 
+// ────────────────────────────────────────────────────────────────────────
+// EscrowRedeemer
+//
+// Variant order MUST match types.ak exactly:
+//   Apply, Update, Select, Submit, Release, Refund, BuilderWithdraw,
+//   Dispute, Resolve, AutoRelease, AutoRefund, ArbitratorTimeout.
+// ────────────────────────────────────────────────────────────────────────
+
 const EscrowRedeemerSchema = Data.Enum([
   Data.Literal("Apply"),
   Data.Object({
@@ -131,14 +139,7 @@ const EscrowRedeemerSchema = Data.Enum([
   Data.Object({
     Select: Data.Object({ builder: AddressSchema }),
   }),
-  Data.Object({
-    Submit: Data.Object({ submission_cid: Data.Bytes({ maxLength: 64 }) }),
-  }),
-  Data.Object({
-    AmendSubmission: Data.Object({
-      new_submission_cid: Data.Bytes({ maxLength: 64 }),
-    }),
-  }),
+  Data.Literal("Submit"),
   Data.Literal("Release"),
   Data.Literal("Refund"),
   Data.Literal("BuilderWithdraw"),
