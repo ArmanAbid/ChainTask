@@ -1,193 +1,280 @@
 /**
- * Marketplace — browse open jobs.
+ * Marketplace — browse Open jobs on Preview testnet.
  *
- * Filterable by category, sortable by recency / budget. Shows a card per
- * job with the client's resolved name + address.
+ * Layout mirrors the source design: a full-width search input + inline
+ * category pill buttons across the top, then a single-column card with
+ * one row per job. Click a row → JobDetail.
+ *
+ * Each row resolves the client's profile (name + avatar) from the on-chain
+ * profile UTxO via useProfile(). The on-chain Open jobs come from useJobs().
+ *
+ * Empty-state: until contracts are deployed (env.contractsDeployed=false),
+ * we show a friendly "no jobs yet" message instead of the wired list.
  */
 
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { env } from "@/config/env";
-import { EmptyState } from "@/components/EmptyState";
-import { Ada, Identity, Pill } from "@/components/atoms";
+import { Ada, Avatar, Pill } from "@/components/atoms";
 import { Icons } from "@/components/Icons";
 import { useJobs } from "@/hooks/useQueries";
 import { useProfile } from "@/hooks/useQueries";
-import { formatRelative } from "@/lib/format";
+import { useRole } from "@/hooks/useRole";
+import { formatRelative, truncateAddress } from "@/lib/format";
 import type { Job } from "@/types/domain";
 
-type SortKey = "newest" | "budget-desc" | "budget-asc";
+const FIXED_CATS = ["All"];
 
 export default function Marketplace() {
   const { data: jobs = [], isLoading } = useJobs();
-  const [category, setCategory] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortKey>("newest");
+  const { role } = useRole();
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState("All");
 
-  // Build the category list from what's actually on-chain (no fixed taxonomy).
+  // Build category list from what's on-chain (case-insensitive de-dupe).
   const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const j of jobs) if (j.category) set.add(j.category);
-    return Array.from(set).sort();
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const j of jobs) {
+      const c = j.category?.trim();
+      if (!c) continue;
+      const k = c.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(c[0].toUpperCase() + c.slice(1));
+    }
+    return [...FIXED_CATS, ...out.sort()];
   }, [jobs]);
 
   const filtered = useMemo(() => {
-    let out = jobs.filter((j) => j.status === "Open");
-    if (category) out = out.filter((j) => j.category === category);
-    if (sort === "newest")
-      out = [...out].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    if (sort === "budget-desc") out = [...out].sort((a, b) => b.budget - a.budget);
-    if (sort === "budget-asc") out = [...out].sort((a, b) => a.budget - b.budget);
-    return out;
-  }, [jobs, category, sort]);
+    return jobs.filter((j) => {
+      if (cat !== "All" && j.category.toLowerCase() !== cat.toLowerCase()) {
+        return false;
+      }
+      if (q) {
+        const needle = q.toLowerCase();
+        const hay = [j.title, j.description, j.skills.join(" "), j.category]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [jobs, q, cat]);
 
   return (
-    <div className="max-w-[1180px] mx-auto px-8 py-8 pb-20">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight mb-1">Marketplace</h1>
-        <div className="text-text-dim text-[13.5px]">
-          Open jobs waiting for a builder
+    <div className="max-w-[1180px] mx-auto px-6 md:px-8 py-8 pb-20">
+      <div className="flex flex-wrap items-end justify-between gap-6 mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight mb-1">
+            Marketplace
+          </h1>
+          <div className="text-text-dim text-[13.5px]">
+            {isLoading ? (
+              <>Loading from chain…</>
+            ) : (
+              <>
+                {filtered.length} open job{filtered.length === 1 ? "" : "s"}{" "}
+                · escrow funded on Cardano Preview
+              </>
+            )}
+          </div>
         </div>
+        {role === "client" && (
+          <Link to="/app/post" className="btn btn-primary">
+            <Icons.plus className="w-3.5 h-3.5" /> Post a job
+          </Link>
+        )}
       </div>
 
-      {!env.contractsDeployed && (
-        <div className="mb-6 card p-4 border-accent-line">
-          <div className="text-[13px] font-medium text-accent mb-1">Contracts not yet deployed</div>
-          <div className="text-[12.5px] text-text-dim">
-            The marketplace is empty until smart contracts deploy on Cardano {env.network}. Posting and applying will work as soon as deployment lands in Week 7.
-          </div>
+      {/* Search + category pills */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 mb-4">
+        <div className="flex-1 relative">
+          <Icons.search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-text-faint" />
+          <input
+            className="input pl-9"
+            placeholder="Search jobs, skills, descriptions…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
-      )}
-
-      <div className="grid lg:grid-cols-[220px_1fr] gap-6">
-        <aside>
-          <div className="text-[11px] uppercase tracking-wider text-text-faint mb-2 px-1">Category</div>
-          <div className="flex flex-col gap-1">
-            <FilterButton
-              label="All"
-              count={filtered.length}
-              active={category === null}
-              onClick={() => setCategory(null)}
-            />
-            {categories.map((c) => {
-              const n = jobs.filter((j) => j.status === "Open" && j.category === c).length;
-              return (
-                <FilterButton
-                  key={c}
-                  label={c}
-                  count={n}
-                  active={category === c}
-                  onClick={() => setCategory(c)}
-                />
-              );
-            })}
+        {categories.length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {categories.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCat(c)}
+                className={`px-2.5 py-1.5 rounded-md text-[12.5px] border transition-colors ${
+                  cat === c
+                    ? "bg-surface-2 text-text border-border-strong"
+                    : "bg-surface text-text-dim border-border hover:text-text"
+                }`}
+              >
+                {c}
+              </button>
+            ))}
           </div>
+        )}
+      </div>
 
-          <div className="text-[11px] uppercase tracking-wider text-text-faint mt-6 mb-2 px-1">Sort</div>
-          <select
-            className="select"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            <option value="newest">Newest first</option>
-            <option value="budget-desc">Budget · high to low</option>
-            <option value="budget-asc">Budget · low to high</option>
-          </select>
-        </aside>
-
-        <div>
-          {isLoading && (
-            <div className="text-center py-16 text-[13px] text-text-faint">Loading jobs…</div>
-          )}
-
-          {!isLoading && filtered.length === 0 && (
-            <EmptyState
-              icon={<Icons.briefcase className="w-5 h-5" />}
-              title="No open jobs"
-              description={
-                env.contractsDeployed
-                  ? "There are no open jobs in this category right now. Try a different filter, or check back later."
-                  : "Once contracts deploy and clients start posting, jobs will appear here."
+      {/* Listing */}
+      <div className="card p-0">
+        {!env.contractsDeployed ? (
+          <EmptyContent
+            title="Contracts not yet deployed"
+            body="The marketplace will populate once the validators are on testnet and jobs start being posted."
+          />
+        ) : isLoading ? (
+          <EmptyContent title="Reading from chain…" body="Fetching Open jobs from the escrow script address." />
+        ) : filtered.length === 0 ? (
+          jobs.length === 0 ? (
+            <EmptyContent
+              title="No jobs yet"
+              body={
+                role === "client" ? (
+                  <>
+                    Post the first one from{" "}
+                    <Link to="/app/post" className="text-accent hover:underline">
+                      here
+                    </Link>
+                    .
+                  </>
+                ) : (
+                  <>Be the first builder when one drops.</>
+                )
               }
             />
-          )}
-
-          {!isLoading && filtered.length > 0 && (
-            <div className="grid sm:grid-cols-2 gap-4">
-              {filtered.map((j) => (
-                <JobCard key={j.id} job={j} />
-              ))}
-            </div>
-          )}
-        </div>
+          ) : (
+            <EmptyContent
+              title="No jobs match your filters"
+              body="Try a broader search or clear the category."
+            />
+          )
+        ) : (
+          filtered.map((j) => (
+            <JobRow
+              key={j.id}
+              job={j}
+              onOpen={() => navigate(`/app/jobs/${encodeURIComponent(j.id)}`)}
+            />
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-function FilterButton({
-  label,
-  count,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  active: boolean;
-  onClick: () => void;
-}) {
+// ────────────────────────────────────────────────────────────────────────
+// Subcomponents
+// ────────────────────────────────────────────────────────────────────────
+
+function JobRow({ job, onOpen }: { job: Job; onOpen: () => void }) {
+  const { data: profile } = useProfile(job.clientAddress);
+  const navigate = useNavigate();
+  const clientName =
+    profile?.content?.displayName ?? truncateAddress(job.clientAddress);
+  const initial = (clientName[0] || "?").toUpperCase();
+
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center justify-between px-2.5 py-2 rounded-md text-[13px] transition-colors ${
-        active
-          ? "bg-surface text-text border border-border"
-          : "text-text-dim border border-transparent hover:bg-surface hover:text-text"
-      }`}
+    <div
+      className="flex flex-col sm:flex-row gap-4 p-5 border-b border-border last:border-b-0 hover:bg-surface transition-colors cursor-pointer"
+      onClick={onOpen}
     >
-      <span className="capitalize">{label}</span>
-      <span className="text-[11px] text-text-faint font-mono">{count}</span>
-    </button>
+      {/* Avatar (own click stops bubbling so it goes to the profile not the job) */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/app/profiles/${encodeURIComponent(job.clientAddress)}`);
+        }}
+        className="bg-transparent border-0 p-0 self-start"
+        aria-label={`View ${clientName}'s profile`}
+      >
+        {profile?.content?.avatarCid ? (
+          <Avatar name={initial} src={profile.content.avatarCid} />
+        ) : (
+          <Avatar name={initial} />
+        )}
+      </button>
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2.5 mb-1 flex-wrap">
+          <h3 className="text-[14.5px] font-medium m-0 tracking-tight truncate">
+            {job.title || "(no title)"}
+          </h3>
+          <Pill status={statusFor(job)}>{job.status}</Pill>
+        </div>
+        {job.description && (
+          <p className="text-text-dim text-[13px] line-clamp-2 my-1">
+            {job.description}
+          </p>
+        )}
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-[12px] text-text-faint mt-2">
+          <button
+            type="button"
+            className="link-name"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(
+                `/app/profiles/${encodeURIComponent(job.clientAddress)}`,
+              );
+            }}
+          >
+            {clientName}
+          </button>
+          <span>·</span>
+          <span>posted {formatRelative(job.createdAt)}</span>
+          {job.deadlineDays != null && (
+            <>
+              <span>·</span>
+              <span>in {job.deadlineDays} days</span>
+            </>
+          )}
+          {job.skills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 ml-1">
+              {job.skills.slice(0, 3).map((s) => (
+                <span key={s} className="tag">
+                  {s}
+                </span>
+              ))}
+              {job.skills.length > 3 && (
+                <span className="tag text-text-faint">+{job.skills.length - 3}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex sm:flex-col sm:items-end gap-0.5 sm:pl-4 sm:border-l border-border flex-shrink-0">
+        <Ada amount={job.budget} big />
+      </div>
+    </div>
   );
 }
 
-function JobCard({ job }: { job: Job }) {
-  const { data: clientProfile } = useProfile(job.clientAddress);
+function EmptyContent({
+  title,
+  body,
+}: {
+  title: string;
+  body: React.ReactNode;
+}) {
   return (
-    <Link
-      to={`/app/jobs/${encodeURIComponent(job.id)}`}
-      className="card p-5 hover:border-border-strong hover:-translate-y-0.5 transition-all flex flex-col gap-3"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-[15px] font-medium truncate">{job.title || "Untitled"}</h3>
-          <div className="text-[12px] text-text-faint mt-0.5">
-            {job.category} · posted {formatRelative(job.createdAt)}
-          </div>
-        </div>
-        <Pill status={job.status} />
-      </div>
-
-      {job.description && (
-        <p className="text-[13px] text-text-dim line-clamp-2 leading-relaxed">
-          {job.description}
-        </p>
-      )}
-
-      {job.skills && job.skills.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {job.skills.slice(0, 4).map((s) => (
-            <span key={s} className="tag">{s}</span>
-          ))}
-          {job.skills.length > 4 && (
-            <span className="text-[11px] text-text-faint self-center">+{job.skills.length - 4}</span>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between gap-3 pt-3 border-t border-border">
-        <Identity address={job.clientAddress} profile={clientProfile ?? null} size="sm" showAvatar />
-        <Ada amount={job.budget} big />
-      </div>
-    </Link>
+    <div className="text-center py-16 px-6">
+      <div className="text-[14px] text-text mb-1">{title}</div>
+      <div className="text-[13px] text-text-dim">{body}</div>
+    </div>
   );
+}
+
+function statusFor(j: Job): "open" | "selected" | "submitted" | "completed" | "disputed" | "cancelled" {
+  // Job.status from our domain type uses on-chain enum names. The Pill
+  // atom expects lowercase. Map both ways for safety.
+  const s = String(j.status).toLowerCase();
+  if (s === "open" || s === "selected" || s === "submitted" || s === "completed" || s === "disputed" || s === "cancelled") {
+    return s as ReturnType<typeof statusFor>;
+  }
+  return "open";
 }

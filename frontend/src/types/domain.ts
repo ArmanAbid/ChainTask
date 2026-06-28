@@ -53,6 +53,12 @@ export interface Job {
   category: string;
   /** Off-chain skills/tags, sourced from IPFS. */
   skills: string[];
+  /**
+   * Off-chain delivery timeline in days, sourced from IPFS JobDescription.
+   * Soft commitment — not enforced by the validator. Undefined for older
+   * jobs posted before this field existed.
+   */
+  deadlineDays?: number;
   /** Lovelace locked in escrow, as ADA for display. */
   budget: Ada;
   /** Bech32 of the client. */

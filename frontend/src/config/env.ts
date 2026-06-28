@@ -36,6 +36,13 @@ interface AppEnv {
    * treasury address, min job amount, platform cut, and dispute fee.
    */
   globalConfigOutRef: string;
+  /**
+   * Comma-separated bech32 addresses of ChainTask team members who are
+   * approved arbitrators. Clients pick one of these when posting a job;
+   * arbitrators can't be self-nominated. Configured via
+   * VITE_ARBITRATOR_ADDRESSES.
+   */
+  arbitratorAddresses: string[];
 }
 
 function readNetwork(): CardanoNetwork {
@@ -89,4 +96,8 @@ export const env: AppEnv = {
   adminAssetName: readOptional("VITE_ADMIN_ASSET_NAME"),
   treasuryAddress: readOptional("VITE_TREASURY_ADDRESS"),
   globalConfigOutRef: readOptional("VITE_GLOBAL_CONFIG_OUTREF"),
+  arbitratorAddresses: readOptional("VITE_ARBITRATOR_ADDRESSES")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0),
 };

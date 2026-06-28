@@ -70,14 +70,14 @@ export async function getJobById(id: string): Promise<Job | null> {
 // ────────────────────────────────────────────────────────────────────────
 
 async function toJob(escrow: EscrowUtxo): Promise<Job> {
-  const desc = await fetchJson<JobDescription>(escrow.datum.jobCid).catch(
-    () => ({
-      title: "Untitled",
-      description: "",
-      category: escrow.datum.category,
-      skills: [],
-    }),
-  );
+  const desc = await fetchJson<JobDescription>(escrow.datum.jobCid).catch<
+    JobDescription
+  >(() => ({
+    title: "Untitled",
+    description: "",
+    category: escrow.datum.category,
+    skills: [],
+  }));
 
   const status = escrow.datum.status as JobStatus;
   const autoReleaseAt = escrow.datum.submittedAt
@@ -108,6 +108,7 @@ async function toJob(escrow: EscrowUtxo): Promise<Job> {
     description: desc.description,
     category: desc.category || escrow.datum.category,
     skills: desc.skills,
+    deadlineDays: desc.deadlineDays,
     budget: lovelaceToAda(escrow.datum.amountLovelace),
     clientAddress: escrow.datum.clientAddress,
     builderAddress: escrow.datum.builderAddress,

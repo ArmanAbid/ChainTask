@@ -96,7 +96,11 @@ export const blockfrost = {
       if (err instanceof BlockfrostError && err.status === 404) return [];
       throw err;
     });
-    return utxos.find((u) => u.output_index === outputIndex) ?? null;
+    const found = utxos.find((u) => u.output_index === outputIndex);
+    // The /txs/{hash}/utxos endpoint omits tx_hash from each output
+    // (it's implied by the path). Re-attach it so downstream code can
+    // construct stable UTxO refs like `${txHash}#${outputIndex}`.
+    return found ? { ...found, tx_hash: txHash } : null;
   },
 
   /**
