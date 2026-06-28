@@ -16,7 +16,42 @@ export interface JobDescription {
   description: string;
   category: string;
   skills: string[];
+  /**
+   * Off-chain delivery timeline in days, set by the client at post time
+   * as a soft commitment to builders. Not enforced on chain — the
+   * on-chain auto_release / auto_refund deadlines are protocol-level
+   * safety nets unrelated to this field. Client and builder can later
+   * renegotiate by pinning amended job descriptions and mutually
+   * acknowledging (future W10 feature).
+   */
+  deadlineDays?: number;
   attachments?: { name: string; cid: string }[];
+}
+
+/**
+ * Off-chain proposal a builder pins when applying to a job.
+ *
+ * Storage convention: pinned to Pinata with metadata `keyvalues`
+ * `{ chaintaskType: "proposal", jobId, builderAddress }`. Clients list
+ * proposals for a job by querying Pinata's /data/pinList endpoint
+ * filtered on these keyvalues. Anyone running their own Pinata account
+ * (or any IPFS pinning service that exposes a similar listing API) can
+ * see the same set of proposals — the chain is not the source of truth
+ * for proposals, but the data is fully public.
+ *
+ * The proposal contains no bid amount: the job budget is set by the
+ * client at post time. Proposals are applications, not bids.
+ */
+export interface Proposal {
+  type: "proposal";
+  jobId: string;                  // `${txHash}#${outputIndex}`
+  builderAddress: string;          // bech32
+  /** Cover letter / message. */
+  message: string;
+  /** Optional builder estimate of delivery in days. */
+  deliveryDays?: number;
+  /** Off-chain timestamp (ms). The chain is the source of truth for time. */
+  postedAt: number;
 }
 
 export interface WorkSubmission {
@@ -50,12 +85,27 @@ function requireJwt(): string {
 
 /**
  * Pin a JSON object to IPFS. Returns the CID.
+ *
+ * `opts.name` sets a human-readable name on the pin.
+ * `opts.keyvalues` adds searchable metadata for later listing via
+ *   /data/pinList. Used by the proposal system to find all proposals
+ *   for a given job, and by other off-chain "registries" we may add.
  */
 export async function pinJson<T>(
   obj: T,
-  opts: { name?: string } = {},
+  opts: {
+    name?: string;
+    keyvalues?: Record<string, string>;
+  } = {},
 ): Promise<string> {
   const jwt = requireJwt();
+  const pinataMetadata =
+    opts.name || opts.keyvalues
+      ? {
+          ...(opts.name ? { name: opts.name } : {}),
+          ...(opts.keyvalues ? { keyvalues: opts.keyvalues } : {}),
+        }
+      : undefined;
   const res = await fetch(`${PINATA_API}/pinning/pinJSONToIPFS`, {
     method: "POST",
     headers: {
@@ -64,7 +114,7 @@ export async function pinJson<T>(
     },
     body: JSON.stringify({
       pinataContent: obj,
-      pinataMetadata: opts.name ? { name: opts.name } : undefined,
+      pinataMetadata,
     }),
   });
   if (!res.ok) {
@@ -229,4 +279,98 @@ export async function listFolder(cid: string): Promise<IpfsDirEntry[] | null> {
   } catch {
     return null;
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Off-chain proposals
+// ────────────────────────────────────────────────────────────────────────
+
+const PROPOSAL_TYPE = "proposal";
+
+/**
+ * Pin a Proposal to IPFS. The Pinata metadata makes it queryable later
+ * via listProposals(jobId) — that's how clients see who applied.
+ */
+export async function pinProposal(p: Proposal): Promise<string> {
+  return pinJson(p, {
+    name: `chaintask-proposal-${p.jobId.slice(0, 12)}-${p.builderAddress.slice(-8)}`,
+    keyvalues: {
+      chaintaskType: PROPOSAL_TYPE,
+      jobId: p.jobId,
+      builderAddress: p.builderAddress,
+    },
+  });
+}
+
+/**
+ * List all proposals for a job. Queries Pinata's pinList endpoint
+ * filtered on the metadata keyvalues set by pinProposal.
+ *
+ * Returns Proposal objects (fetched from each pin's CID) along with
+ * their CIDs so the UI can link to them.
+ *
+ * Trust note: this implementation lists only pins on the connected
+ * Pinata account's JWT. For a fully decentralized "anyone can see all
+ * proposals" property you'd query multiple pinning services or run
+ * your own IPFS node. Acceptable trade-off for hackathon — bidder
+ * spam is bounded by Pinata's free-tier quotas.
+ */
+export async function listProposals(
+  jobId: string,
+): Promise<Array<Proposal & { cid: string }>> {
+  const jwt = requireJwt();
+  // Query Pinata pinList with metadata filter. The filters JSON has to
+  // be URL-encoded.
+  const filters = {
+    chaintaskType: { value: PROPOSAL_TYPE, op: "eq" },
+    jobId: { value: jobId, op: "eq" },
+  };
+  const url = `${PINATA_API}/data/pinList?status=pinned&pageLimit=1000&metadata[keyvalues]=${encodeURIComponent(
+    JSON.stringify(filters),
+  )}`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${jwt}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new IpfsError(`List proposals failed (${res.status}): ${text}`);
+  }
+  const data = (await res.json()) as {
+    rows: Array<{ ipfs_pin_hash: string }>;
+  };
+
+  // Fetch each proposal JSON in parallel. Skip ones that fail to
+  // fetch / parse (might be partial pins or corruption).
+  const results = await Promise.all(
+    data.rows.map(async (row) => {
+      try {
+        const p = await fetchJson<Proposal>(row.ipfs_pin_hash);
+        if (
+          p.type !== PROPOSAL_TYPE ||
+          p.jobId !== jobId ||
+          !p.builderAddress ||
+          !p.message
+        ) {
+          return null;
+        }
+        return { ...p, cid: row.ipfs_pin_hash };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  // Drop nulls and dedupe by builder (keep most recent if a builder
+  // applied twice).
+  const byBuilder = new Map<string, Proposal & { cid: string }>();
+  for (const p of results) {
+    if (!p) continue;
+    const existing = byBuilder.get(p.builderAddress);
+    if (!existing || p.postedAt > existing.postedAt) {
+      byBuilder.set(p.builderAddress, p);
+    }
+  }
+  // Newest first.
+  return Array.from(byBuilder.values()).sort((a, b) => b.postedAt - a.postedAt);
 }
