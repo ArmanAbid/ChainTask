@@ -16,7 +16,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useJob, useProfile, useProposals, useReputation } from "@/hooks/useQueries";
-import { useBuilderWithdraw, useDispute, usePinProposal, useRefund, useRelease, useResolve, useSelectBuilder, useSubmitWork } from "@/hooks/useTx";
+import { useAmendSubmission, useArbitratorTimeout, useAutoRefund, useAutoRelease, useBuilderWithdraw, useDispute, usePinProposal, useRefund, useRelease, useResolve, useSelectBuilder, useSubmitWork, useUpdateJob } from "@/hooks/useTx";
 import { useWallet } from "@/hooks/useWallet";
 import { Ada, Avatar, Cid, Identity, Pill } from "@/components/atoms";
 import { EmptyState } from "@/components/EmptyState";
@@ -89,12 +89,18 @@ function JobDetailContent({ job }: { job: Job }) {
   return (
     <div className="max-w-[1180px] mx-auto px-8 py-8 pb-20">
       {/* Breadcrumb */}
-      <Link
-        to="/app/marketplace"
-        className="inline-flex items-center gap-1.5 text-[12px] text-text-dim hover:text-text mb-6"
-      >
-        <Icons.arrR className="w-3.5 h-3.5 rotate-180" /> Marketplace
-      </Link>
+      <div className="flex items-center gap-1.5 text-[12px] text-text-dim mb-6">
+        <Link
+          to="/app/marketplace"
+          className="hover:text-text inline-flex items-center gap-1.5"
+        >
+          <Icons.arrR className="w-3.5 h-3.5 rotate-180" /> Marketplace
+        </Link>
+        <span className="text-text-faint">/</span>
+        <span className="text-text-faint font-mono truncate">
+          {job.id.slice(0, 12)}…
+        </span>
+      </div>
 
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
@@ -119,9 +125,9 @@ function JobDetailContent({ job }: { job: Job }) {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-8">
+      <div className="grid lg:grid-cols-[1fr_320px] gap-8 items-start">
         {/* Main */}
-        <div className="space-y-6">
+        <div className="space-y-6 min-w-0">
           <section className="card p-6">
             <SectionHeading icon={<Icons.paper className="w-4 h-4" />}>
               Description
@@ -212,7 +218,7 @@ function JobDetailContent({ job }: { job: Job }) {
         </div>
 
         {/* Side */}
-        <aside className="space-y-4">
+        <aside className="space-y-4 lg:sticky lg:top-6">
           <Card>
             <CardHeading>Parties</CardHeading>
             <div className="space-y-3">
@@ -487,19 +493,17 @@ function Timeline({ job }: { job: Job }) {
       {items.map((i) => (
         <div
           key={i.label}
-          className={`flex items-center justify-between text-[12px] ${
-            i.at ? "text-text" : "text-text-faint"
-          }`}
+          className={`flex items-center justify-between text-[12px] ${i.at ? "text-text" : "text-text-faint"
+            }`}
         >
           <span className="flex items-center gap-2">
             <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                i.active
-                  ? "bg-accent"
-                  : i.at
+              className={`w-1.5 h-1.5 rounded-full ${i.active
+                ? "bg-accent"
+                : i.at
                   ? "bg-text-dim"
                   : "bg-border"
-              }`}
+                }`}
             />
             {i.label}
           </span>
@@ -535,9 +539,7 @@ function Actions({
   if (role === "client" && job.status === "Open") {
     return (
       <div className="space-y-2">
-        <button className="btn w-full" disabled title="Update redeemer wires in W10">
-          Edit job
-        </button>
+        <EditJobButton job={job} />
         <div className="text-[11.5px] text-text-faint pt-1.5 leading-relaxed">
           Open jobs can't be cancelled unilaterally. Once a builder is selected, you and the builder can mutually cancel via refund.
         </div>
@@ -550,6 +552,7 @@ function Actions({
         {job.status === "Submitted" && <ReleaseButton job={job} />}
         <RefundButton job={job} />
         <DisputeButton job={job} raiserSide="client" />
+        {job.status === "Selected" && <AutoRefundButton job={job} />}
       </div>
     );
   }
@@ -565,8 +568,10 @@ function Actions({
   if (role === "builder" && job.status === "Submitted") {
     return (
       <div className="space-y-2">
+        <AmendSubmissionButton job={job} />
         <RefundButton job={job} />
         <DisputeButton job={job} raiserSide="builder" />
+        <AutoReleaseButton job={job} />
       </div>
     );
   }
@@ -575,6 +580,18 @@ function Actions({
       <div className="space-y-2">
         <ResolveButton job={job} releaseToBuilder={false} />
         <ResolveButton job={job} releaseToBuilder={true} />
+      </div>
+    );
+  }
+  // Dispute raiser waiting on arbitrator — expose ArbitratorTimeout when
+  // the wait exceeds the timeout window (~14 days).
+  if (job.status === "Disputed" && role !== "arbitrator") {
+    return (
+      <div className="space-y-2">
+        <ArbitratorTimeoutButton job={job} />
+        <div className="text-[11.5px] text-text-faint pt-1.5 leading-relaxed">
+          Waiting on arbitrator. After ~14 days you can trigger arbitrator timeout — the dispute defaults in favor of whoever raised it.
+        </div>
       </div>
     );
   }
@@ -649,8 +666,8 @@ function ApplyButton({ job }: { job: Job }) {
     message.trim().length < 20
       ? "Tell the client why you're a fit (min 20 chars)"
       : message.length > 1000
-      ? "Max 1000 characters"
-      : null;
+        ? "Max 1000 characters"
+        : null;
   const deliveryNum = Number(deliveryDays);
   const deliveryErr =
     deliveryDays && (!Number.isInteger(deliveryNum) || deliveryNum <= 0 || deliveryNum > 365)
@@ -905,8 +922,8 @@ function SubmitWorkButton({ job }: { job: Job }) {
     summary.trim().length < 20
       ? "Summarize what you delivered (min 20 chars)"
       : summary.length > 2000
-      ? "Max 2000 characters"
-      : null;
+        ? "Max 2000 characters"
+        : null;
   const valid = !summaryErr;
   const busy = pinning || submitMut.isPending;
 
@@ -1182,7 +1199,7 @@ function WithdrawButton({ job }: { job: Job }) {
     try {
       await mut.mutateAsync({ jobId: job.id });
       setOpen(false);
-    } catch {}
+    } catch { }
   }
 
   return (
@@ -1234,14 +1251,14 @@ function DisputeButton({
     reason.trim().length === 0
       ? "Required"
       : reason.length > 80
-      ? "Max 80 chars"
-      : null;
+        ? "Max 80 chars"
+        : null;
   const statementErr =
     statement.trim().length < 40
       ? "Make your case (min 40 chars)"
       : statement.length > 4000
-      ? "Max 4000 chars"
-      : null;
+        ? "Max 4000 chars"
+        : null;
   const valid = !reasonErr && !statementErr;
   const busy = pinning || disputeMut.isPending;
 
@@ -1282,7 +1299,7 @@ function DisputeButton({
       setOpen(false);
       setStatement("");
       setReason("");
-    } catch {}
+    } catch { }
   }
 
   return (
@@ -1392,7 +1409,7 @@ function ResolveButton({
     try {
       await resolveMut.mutateAsync({ jobId: job.id, releaseToBuilder });
       setOpen(false);
-    } catch {}
+    } catch { }
   }
 
   const label = releaseToBuilder ? "Builder wins" : "Client wins";
@@ -1475,6 +1492,510 @@ function ResolveButton({
             </span>
           </div>
         </div>
+      </Modal>
+    </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// AmendSubmissionButton — builder revises submission before client releases
+// ────────────────────────────────────────────────────────────────────────
+
+function AmendSubmissionButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const [summary, setSummary] = useState("");
+  const [pinning, setPinning] = useState(false);
+  const amendMut = useAmendSubmission();
+
+  const summaryErr =
+    summary.trim().length < 20
+      ? "Explain what changed (min 20 chars)"
+      : summary.length > 2000
+        ? "Max 2000 characters"
+        : null;
+  const valid = !summaryErr;
+  const busy = pinning || amendMut.isPending;
+
+  async function handle() {
+    if (!valid || busy) return;
+    setPinning(true);
+    let newCid: string;
+    try {
+      const submission: WorkSubmission = {
+        summary: summary.trim(),
+        attachments: [],
+      };
+      newCid = await pinJson(submission, {
+        name: `chaintask-submission-amend-${job.id.slice(0, 12)}`,
+        keyvalues: {
+          chaintaskType: "submission-amend",
+          jobId: job.id,
+        },
+      });
+    } catch (e) {
+      setPinning(false);
+      pushToast(e instanceof Error ? e.message : "IPFS pin failed", "error");
+      return;
+    }
+    setPinning(false);
+
+    try {
+      await amendMut.mutateAsync({ jobId: job.id, newSubmissionCid: newCid });
+      setOpen(false);
+      setSummary("");
+    } catch { }
+  }
+
+  return (
+    <>
+      <button className="btn w-full" onClick={() => setOpen(true)}>
+        Amend submission
+      </button>
+      <Modal
+        open={open}
+        onClose={() => !busy && setOpen(false)}
+        title="Amend your submission"
+        subtitle="Replaces the current submission — client review window resets"
+        footer={
+          <>
+            <button className="btn" onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-accent"
+              onClick={handle}
+              disabled={!valid || busy}
+            >
+              {pinning ? (
+                <>
+                  <span className="tx-spinner" /> Pinning…
+                </>
+              ) : amendMut.isPending ? (
+                <>
+                  <span className="tx-spinner" /> Submitting tx…
+                </>
+              ) : (
+                <>
+                  <Icons.send className="w-3.5 h-3.5" /> Amend submission
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3.5">
+          <div>
+            <label className="field-label">Revised delivery summary</label>
+            <textarea
+              className="textarea mt-1.5"
+              rows={8}
+              placeholder="Describe what changed since your last submission. Link updated deliverables."
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              maxLength={2000}
+              disabled={busy}
+            />
+            <div className="flex items-center justify-between text-[11px] text-text-faint mt-1">
+              <span>
+                {summaryErr ? (
+                  <span className="text-danger">{summaryErr}</span>
+                ) : (
+                  "Pinned as a new IPFS document; the on-chain submission_cid updates"
+                )}
+              </span>
+              <span className="font-mono">{summary.length}/2000</span>
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-2.5 bg-bg-2 border border-border rounded-md text-[12px] text-text-dim">
+            <Icons.lock className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
+            <span>
+              submitted_at advances strictly forward on chain, so the auto-release timer restarts from now. The client keeps the same options: release, dispute, or mutual refund.
+            </span>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// EditJobButton — client updates an Open job (title/desc/amount/category)
+// ────────────────────────────────────────────────────────────────────────
+
+function EditJobButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(job.title);
+  const [description, setDescription] = useState(job.description);
+  const [category, setCategory] = useState(job.category);
+  const [budgetAda, setBudgetAda] = useState(String(job.budget));
+  const [pinning, setPinning] = useState(false);
+  const updateMut = useUpdateJob();
+
+  const titleErr =
+    title.trim().length === 0
+      ? "Required"
+      : title.length > 80
+        ? "Max 80 chars"
+        : null;
+  const descErr =
+    description.trim().length === 0
+      ? "Required"
+      : description.length > 2000
+        ? "Max 2000 chars"
+        : null;
+  const budgetNum = Number(budgetAda);
+  const budgetErr =
+    !budgetAda
+      ? "Required"
+      : Number.isNaN(budgetNum) || budgetNum <= 0
+        ? "Must be positive"
+        : null;
+  const categoryErr =
+    category.trim().length === 0
+      ? "Required"
+      : new TextEncoder().encode(category).length > 16
+        ? "Max 16 bytes"
+        : null;
+  const valid = !titleErr && !descErr && !budgetErr && !categoryErr;
+  const busy = pinning || updateMut.isPending;
+
+  async function handle() {
+    if (!valid || busy) return;
+    setPinning(true);
+    let newCid: string;
+    try {
+      newCid = await pinJson(
+        {
+          title: title.trim(),
+          description: description.trim(),
+          category: category.trim(),
+          skills: job.skills,
+          deadlineDays: job.deadlineDays,
+        },
+        {
+          name: `chaintask-job-edit-${job.id.slice(0, 12)}`,
+        },
+      );
+    } catch (e) {
+      setPinning(false);
+      pushToast(e instanceof Error ? e.message : "IPFS pin failed", "error");
+      return;
+    }
+    setPinning(false);
+
+    try {
+      await updateMut.mutateAsync({
+        jobId: job.id,
+        newJobCid: newCid,
+        newAmountAda: budgetNum,
+        newCategory: category.trim(),
+      });
+      setOpen(false);
+    } catch { }
+  }
+
+  return (
+    <>
+      <button className="btn w-full" onClick={() => setOpen(true)}>
+        Edit job
+      </button>
+      <Modal
+        open={open}
+        onClose={() => !busy && setOpen(false)}
+        title="Edit this job"
+        subtitle="Available while job is Open (no builder selected)"
+        size="lg"
+        footer={
+          <>
+            <button className="btn" onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-accent"
+              onClick={handle}
+              disabled={!valid || busy}
+            >
+              {pinning ? (
+                <>
+                  <span className="tx-spinner" /> Pinning…
+                </>
+              ) : updateMut.isPending ? (
+                <>
+                  <span className="tx-spinner" /> Submitting…
+                </>
+              ) : (
+                <>Save changes</>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3.5">
+          <div>
+            <label className="field-label">Title</label>
+            <input
+              className="input mt-1.5"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={80}
+              disabled={busy}
+            />
+            {titleErr && <div className="text-[11px] text-danger mt-1">{titleErr}</div>}
+          </div>
+          <div>
+            <label className="field-label">Description</label>
+            <textarea
+              className="textarea mt-1.5"
+              rows={6}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={2000}
+              disabled={busy}
+            />
+            {descErr && <div className="text-[11px] text-danger mt-1">{descErr}</div>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="field-label">Category</label>
+              <input
+                className="input mt-1.5"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                disabled={busy}
+              />
+              {categoryErr && <div className="text-[11px] text-danger mt-1">{categoryErr}</div>}
+            </div>
+            <div>
+              <label className="field-label">Budget (ADA)</label>
+              <input
+                className="input mt-1.5"
+                inputMode="decimal"
+                value={budgetAda}
+                onChange={(e) =>
+                  setBudgetAda(e.target.value.replace(/[^0-9.]/g, ""))
+                }
+                disabled={busy}
+              />
+              {budgetErr && <div className="text-[11px] text-danger mt-1">{budgetErr}</div>}
+            </div>
+          </div>
+          <div className="flex items-start gap-2 p-2.5 bg-bg-2 border border-border rounded-md text-[12px] text-text-dim">
+            <Icons.lock className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
+            <span>
+              If you increase the budget, your wallet tops up the escrow. If you decrease it, the difference returns to you in the same tx.
+            </span>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Time-based buttons — only enabled after their respective deadlines pass.
+//
+// The wired tx builders throw a friendly error if invoked pre-deadline,
+// but we also gate the button visibly so the user sees a countdown
+// rather than trying-and-failing.
+// ────────────────────────────────────────────────────────────────────────
+
+function formatCountdown(msRemaining: bigint): string {
+  if (msRemaining <= 0n) return "any moment";
+  const secs = Number(msRemaining / 1000n);
+  const days = Math.floor(secs / 86400);
+  const hours = Math.floor((secs % 86400) / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  return `${mins}m`;
+}
+
+function AutoReleaseButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const mut = useAutoRelease();
+
+  const deadlineMs = job.autoReleaseAt ? job.autoReleaseAt.getTime() : 0;
+  const nowMs = Date.now();
+  const passed = deadlineMs > 0 && nowMs > deadlineMs;
+  const remaining = BigInt(deadlineMs - nowMs);
+
+  async function handle() {
+    if (mut.isPending || !passed) return;
+    try {
+      await mut.mutateAsync({ jobId: job.id });
+      setOpen(false);
+    } catch { }
+  }
+
+  return (
+    <>
+      <button
+        className="btn w-full"
+        onClick={() => setOpen(true)}
+        disabled={!passed}
+        title={
+          passed
+            ? "Auto-release the escrow to the builder"
+            : `Available in ${formatCountdown(remaining)}`
+        }
+      >
+        {passed ? "Auto-release" : `Auto-release in ${formatCountdown(remaining)}`}
+      </button>
+      <Modal
+        open={open}
+        onClose={() => !mut.isPending && setOpen(false)}
+        title="Auto-release escrow"
+        footer={
+          <>
+            <button className="btn" onClick={() => setOpen(false)} disabled={mut.isPending}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-accent"
+              onClick={handle}
+              disabled={mut.isPending}
+            >
+              {mut.isPending ? (
+                <>
+                  <span className="tx-spinner" /> Submitting…
+                </>
+              ) : (
+                "Confirm auto-release"
+              )}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-text-dim leading-relaxed m-0">
+          The client didn't respond within the deadline. You (the builder) can now claim the payout unilaterally per the auto-release safety net. Same split as a normal release: {100 - PROTOCOL_PARAMS.platformCutPercent}% to you, {PROTOCOL_PARAMS.platformCutPercent}% to treasury.
+        </p>
+      </Modal>
+    </>
+  );
+}
+
+function AutoRefundButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const mut = useAutoRefund();
+
+  const deadlineMs = job.autoRefundAt ? job.autoRefundAt.getTime() : 0;
+  const nowMs = Date.now();
+  const passed = deadlineMs > 0 && nowMs > deadlineMs;
+  const remaining = BigInt(deadlineMs - nowMs);
+
+  async function handle() {
+    if (mut.isPending || !passed) return;
+    try {
+      await mut.mutateAsync({ jobId: job.id });
+      setOpen(false);
+    } catch { }
+  }
+
+  return (
+    <>
+      <button
+        className="btn w-full"
+        onClick={() => setOpen(true)}
+        disabled={!passed}
+        title={
+          passed
+            ? "Refund the escrow to yourself"
+            : `Available in ${formatCountdown(remaining)}`
+        }
+      >
+        {passed ? "Auto-refund" : `Auto-refund in ${formatCountdown(remaining)}`}
+      </button>
+      <Modal
+        open={open}
+        onClose={() => !mut.isPending && setOpen(false)}
+        title="Auto-refund escrow"
+        footer={
+          <>
+            <button className="btn" onClick={() => setOpen(false)} disabled={mut.isPending}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={handle}
+              disabled={mut.isPending}
+            >
+              {mut.isPending ? (
+                <>
+                  <span className="tx-spinner" /> Refunding…
+                </>
+              ) : (
+                "Confirm auto-refund"
+              )}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-text-dim leading-relaxed m-0">
+          The builder didn't submit within the deadline. You can now claim the full ₳{job.budget} back unilaterally. No treasury cut on auto-refund. This ends the job.
+        </p>
+      </Modal>
+    </>
+  );
+}
+
+function ArbitratorTimeoutButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const mut = useArbitratorTimeout();
+
+  const deadlineMs = job.arbitratorTimeoutAt
+    ? job.arbitratorTimeoutAt.getTime()
+    : 0;
+  const nowMs = Date.now();
+  const passed = deadlineMs > 0 && nowMs > deadlineMs;
+  const remaining = BigInt(deadlineMs - nowMs);
+
+  async function handle() {
+    if (mut.isPending || !passed) return;
+    try {
+      await mut.mutateAsync({ jobId: job.id });
+      setOpen(false);
+    } catch { }
+  }
+
+  return (
+    <>
+      <button
+        className="btn btn-accent w-full"
+        onClick={() => setOpen(true)}
+        disabled={!passed}
+      >
+        {passed
+          ? "Trigger arbitrator timeout"
+          : `Arbitrator timeout in ${formatCountdown(remaining)}`}
+      </button>
+      <Modal
+        open={open}
+        onClose={() => !mut.isPending && setOpen(false)}
+        title="Trigger arbitrator timeout"
+        footer={
+          <>
+            <button className="btn" onClick={() => setOpen(false)} disabled={mut.isPending}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-accent"
+              onClick={handle}
+              disabled={mut.isPending}
+            >
+              {mut.isPending ? (
+                <>
+                  <span className="tx-spinner" /> Submitting…
+                </>
+              ) : (
+                "Confirm"
+              )}
+            </button>
+          </>
+        }
+      >
+        <p className="text-[13px] text-text-dim leading-relaxed m-0">
+          The arbitrator hasn't resolved this dispute within 14 days. The dispute now defaults in favor of whoever raised it (you). The escrow will be distributed and reputation counters updated accordingly.
+        </p>
       </Modal>
     </>
   );

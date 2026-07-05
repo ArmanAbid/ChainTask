@@ -112,19 +112,25 @@ export const EscrowDatum = EscrowDatumSchema as unknown as EscrowDatumT;
 
 // ────────────────────────────────────────────────────────────────────────
 // EscrowRedeemer
-//
-// Variant order MUST match types.ak:
-//   Apply, Update, Select, Submit, AmendSubmission, Release, Refund,
-//   BuilderWithdraw, Dispute, Resolve, AutoRelease, AutoRefund,
-//   ArbitratorTimeout.
-// ────────────────────────────────────────────────────────────────────────
-
 // ────────────────────────────────────────────────────────────────────────
 // EscrowRedeemer
 //
-// Variant order MUST match types.ak exactly:
-//   Apply, Update, Select, Submit, Release, Refund, BuilderWithdraw,
-//   Dispute, Resolve, AutoRelease, AutoRefund, ArbitratorTimeout.
+// Variant order MUST match types.ak EXACTLY. Index drift silently breaks
+// every later variant's CBOR encoding.
+//
+//   0. Apply
+//   1. Update { new_job_cid, new_amount_lovelace, new_category }
+//   2. Select { builder }
+//   3. Submit { submission_cid }
+//   4. AmendSubmission { new_submission_cid }
+//   5. Release
+//   6. Refund
+//   7. BuilderWithdraw
+//   8. Dispute { evidence_cid }
+//   9. Resolve { release_to_builder }
+//  10. AutoRelease
+//  11. AutoRefund
+//  12. ArbitratorTimeout
 // ────────────────────────────────────────────────────────────────────────
 
 const EscrowRedeemerSchema = Data.Enum([
@@ -139,7 +145,14 @@ const EscrowRedeemerSchema = Data.Enum([
   Data.Object({
     Select: Data.Object({ builder: AddressSchema }),
   }),
-  Data.Literal("Submit"),
+  Data.Object({
+    Submit: Data.Object({ submission_cid: Data.Bytes({ maxLength: 64 }) }),
+  }),
+  Data.Object({
+    AmendSubmission: Data.Object({
+      new_submission_cid: Data.Bytes({ maxLength: 64 }),
+    }),
+  }),
   Data.Literal("Release"),
   Data.Literal("Refund"),
   Data.Literal("BuilderWithdraw"),

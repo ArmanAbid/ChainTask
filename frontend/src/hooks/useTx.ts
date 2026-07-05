@@ -17,6 +17,10 @@ import { useWallet as useWeldWallet } from "@ada-anvil/weld/react";
 import { pushToast } from "@/components/Toasts";
 import { getLucid } from "@/lib/tx/lucid";
 import {
+  amendSubmission,
+  arbitratorTimeout,
+  autoRefund,
+  autoRelease,
   builderWithdraw,
   dispute,
   postJob,
@@ -25,7 +29,12 @@ import {
   resolve,
   selectBuilder,
   submitWork,
+  updateJob,
   updateProfile,
+  type AmendSubmissionInput,
+  type ArbitratorTimeoutInput,
+  type AutoRefundInput,
+  type AutoReleaseInput,
   type BuilderWithdrawInput,
   type DisputeInput,
   type PostJobInput,
@@ -34,6 +43,7 @@ import {
   type ResolveInput,
   type SelectBuilderInput,
   type SubmitWorkInput,
+  type UpdateJobInput,
   type UpdateProfileInput,
 } from "@/lib/tx/builders";
 import { pinProposal, type Proposal } from "@/lib/ipfs";
@@ -147,6 +157,46 @@ export function useResolve() {
   return useTxMutation<ResolveInput>(
     ["tx", "resolve"],
     (lucid, input) => resolve(lucid, input),
+    [["job"], ["jobs"], ["reputation"]],
+  );
+}
+
+export function useAmendSubmission() {
+  return useTxMutation<AmendSubmissionInput>(
+    ["tx", "amendSubmission"],
+    (lucid, input) => amendSubmission(lucid, input),
+    [["job"], ["jobs"]],
+  );
+}
+
+export function useUpdateJob() {
+  return useTxMutation<UpdateJobInput>(
+    ["tx", "updateJob"],
+    (lucid, input) => updateJob(lucid, input),
+    [["job"], ["jobs"]],
+  );
+}
+
+export function useAutoRelease() {
+  return useTxMutation<AutoReleaseInput>(
+    ["tx", "autoRelease"],
+    (lucid, input) => autoRelease(lucid, input),
+    [["job"], ["jobs"], ["reputation"]],
+  );
+}
+
+export function useAutoRefund() {
+  return useTxMutation<AutoRefundInput>(
+    ["tx", "autoRefund"],
+    (lucid, input) => autoRefund(lucid, input),
+    [["job"], ["jobs"]],
+  );
+}
+
+export function useArbitratorTimeout() {
+  return useTxMutation<ArbitratorTimeoutInput>(
+    ["tx", "arbitratorTimeout"],
+    (lucid, input) => arbitratorTimeout(lucid, input),
     [["job"], ["jobs"], ["reputation"]],
   );
 }
