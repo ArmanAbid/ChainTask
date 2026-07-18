@@ -1,17 +1,4 @@
-/**
- * Datum decoders.
- *
- * Convert CBOR-hex inline datums returned by Blockfrost into our typed
- * Onchain* form. The schemas in lib/tx/schemas.ts define the exact wire
- * format; this module just runs `Data.from` against them and maps the
- * raw fields onto our domain-friendly types (bech32 addresses, decoded
- * UTF-8 strings, etc.).
- *
- * If a datum doesn't match the expected schema we return null. This
- * keeps the data layer safe: malformed UTxOs at a script address (which
- * can happen if someone sent funds with a wrong datum) get filtered out
- * rather than crashing the listing.
- */
+// Datum decoders.
 
 import { Data, fromHex, toText } from "@lucid-evolution/lucid";
 import { env } from "@/config/env";
@@ -39,9 +26,7 @@ import type {
 } from "@/types/onchain";
 import type { BfUtxo } from "./blockfrost";
 
-// ────────────────────────────────────────────────────────────────────────
 // Helpers
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Tries to decode `bytes` (hex string) as UTF-8 text. If it doesn't
@@ -61,9 +46,7 @@ function bytesToText(hex: string): string {
   }
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Escrow
-// ────────────────────────────────────────────────────────────────────────
 
 export function decodeEscrowDatum(cborHex: string): OnchainEscrowDatum | null {
   let raw: EscrowDatumT;
@@ -106,9 +89,7 @@ export function decodeEscrowDatum(cborHex: string): OnchainEscrowDatum | null {
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Reputation
-// ────────────────────────────────────────────────────────────────────────
 
 export function decodeReputationDatum(
   cborHex: string,
@@ -135,9 +116,7 @@ export function decodeReputationDatum(
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Profile
-// ────────────────────────────────────────────────────────────────────────
 
 export function decodeProfileDatum(
   cborHex: string,
@@ -156,9 +135,7 @@ export function decodeProfileDatum(
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Global config
-// ────────────────────────────────────────────────────────────────────────
 
 export function decodeGlobalConfig(
   cborHex: string,
@@ -179,9 +156,7 @@ export function decodeGlobalConfig(
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // UTxO transformers
-// ────────────────────────────────────────────────────────────────────────
 
 function lovelaceFromAmounts(
   amount: { unit: string; quantity: string }[],

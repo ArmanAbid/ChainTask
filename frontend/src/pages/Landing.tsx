@@ -12,7 +12,7 @@ import { Reveal } from "@/components/Reveal";
  *
  * Marketing content. All numbers come from PROTOCOL_PARAMS, which mirror
  * the GlobalConfig the protocol will deploy with. Connect Wallet uses the
- * real CIP-30 multi-wallet picker — clicking actually connects.
+ * real CIP-30 multi-wallet picker - clicking actually connects.
  */
 export default function Landing() {
   const [showWallets, setShowWallets] = useState(false);
@@ -215,9 +215,7 @@ export default function Landing() {
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────
 // Inline ConnectModal (real CIP-30 picker)
-// ──────────────────────────────────────────────────────────────────────
 
 function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
   const installed = useExtensions("supportedArr");
@@ -314,9 +312,7 @@ function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnect
   );
 }
 
-// ──────────────────────────────────────────────────────────────────────
 // Small components from the original design
-// ──────────────────────────────────────────────────────────────────────
 
 function VaultNode({ label, who, icon, accent, locked, dim }: { label: string; who: string; icon: React.ReactNode; accent?: boolean; locked?: boolean; dim?: boolean }) {
   return (

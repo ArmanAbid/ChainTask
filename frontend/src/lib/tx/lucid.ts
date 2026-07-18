@@ -1,12 +1,4 @@
-/**
- * Lucid Evolution instance — a singleton tied to the connected wallet.
- *
- * Lucid is heavy (CSL deps, WASM init), so we lazy-initialize it on the
- * first tx the user attempts. Subsequent calls return the same instance.
- *
- * When the wallet disconnects we drop the instance so a future
- * reconnection starts fresh (e.g. if the user switches wallets).
- */
+// Lucid Evolution instance - a singleton tied to the connected wallet.
 
 import { Blockfrost, Lucid } from "@lucid-evolution/lucid";
 import type { LucidEvolution } from "@lucid-evolution/lucid";

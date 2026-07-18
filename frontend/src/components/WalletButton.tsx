@@ -1,12 +1,4 @@
-/**
- * WalletButton — the universal connect/disconnect control.
- *
- * - When disconnected: button opens a modal listing installed CIP-30 wallets.
- *   Click installs nothing — only wallets the user actually has are listed.
- *   For other supported wallets that aren't installed, we show "Install" links.
- * - When connecting: shows a spinner.
- * - When connected: button shows truncated address; click → disconnect menu.
- */
+// WalletButton - the universal connect/disconnect control.
 
 import { useState } from "react";
 import { useExtensions, useWallet as useWeldWallet } from "@ada-anvil/weld/react";
@@ -55,7 +47,6 @@ export function WalletButton() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 
 function ConnectModal({
   open,
@@ -124,7 +115,6 @@ function ConnectModal({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 
 function ConnectedButton({
   label,

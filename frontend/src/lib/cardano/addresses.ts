@@ -1,15 +1,4 @@
-/**
- * Cardano address helpers.
- *
- * Bech32 addresses encode their network in the human-readable prefix:
- *   addr1...        → Mainnet
- *   addr_test1...   → Preview or Preprod (both testnets share the prefix)
- *
- * The wallet itself reports the network independently via CIP-30
- * `getNetworkId()`, which returns 0 for testnet, 1 for mainnet. We
- * cross-check both so a user can't accidentally hit a Preview UI with
- * their mainnet wallet (which would just fail transactions).
- */
+// Cardano address helpers.
 
 import type { CardanoNetwork } from "@/types/domain";
 

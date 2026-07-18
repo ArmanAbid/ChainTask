@@ -1,11 +1,4 @@
-/**
- * Typed environment configuration.
- *
- * All env vars MUST be prefixed with VITE_ so Vite exposes them to the
- * browser. We validate at module load and fail loudly if anything required
- * is missing — better to crash at boot than to silently hit production
- * with a missing API key.
- */
+// Typed environment configuration.
 
 import type { CardanoNetwork } from "@/types/domain";
 

@@ -1,16 +1,4 @@
-/**
- * Wallet — connected-wallet dashboard.
- *
- * All data is real:
- *   - Balance: from Weld's connected wallet
- *   - Locked positions: computed from useJobs() by filtering to jobs where
- *     the user is client or builder AND status is Selected/Submitted/Disputed
- *   - Activity: derived from job state-transition timestamps (createdAt,
- *     selectedAt, submittedAt, disputeRaisedAt) — a "receipt" view of what
- *     the user has been part of on chain
- *
- * No mock data anywhere. Empty states handle each subview gracefully.
- */
+// Wallet - balance, locked positions, activity.
 
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -39,26 +27,20 @@ export default function Wallet() {
   const navigate = useNavigate();
   const [receiveOpen, setReceiveOpen] = useState(false);
 
-  if (w.status !== "connected") {
-    return (
-      <div className="max-w-[720px] mx-auto px-8 py-12">
-        <EmptyState
-          icon={<Icons.wallet className="w-5 h-5" />}
-          title="Connect a wallet"
-          description="Connect your Cardano wallet to see your balance and activity."
-        />
-      </div>
-    );
-  }
-
-  const myAddress = w.address;
-  const balanceAda = w.balanceAda;
+  // All hooks run on every render. When disconnected, `myAddress` is
+  // undefined and the memoized filters just return empty arrays.
+  const myAddress = w.status === "connected" ? w.address : undefined;
+  const balanceAda = w.status === "connected" ? w.balanceAda : 0;
 
   const myJobs = useMemo(
     () =>
-      allJobs.filter(
-        (j) => j.clientAddress === myAddress || j.builderAddress === myAddress,
-      ),
+      myAddress
+        ? allJobs.filter(
+          (j) =>
+            j.clientAddress === myAddress ||
+            j.builderAddress === myAddress,
+        )
+        : [],
     [allJobs, myAddress],
   );
 
@@ -79,6 +61,7 @@ export default function Wallet() {
   );
 
   const activity: Activity[] = useMemo(() => {
+    if (!myAddress) return [];
     const acts: Activity[] = [];
     for (const j of myJobs) {
       if (j.clientAddress === myAddress) {
@@ -125,7 +108,20 @@ export default function Wallet() {
     return acts.sort((a, b) => b.when.getTime() - a.when.getTime()).slice(0, 20);
   }, [myJobs, myAddress]);
 
+  if (w.status !== "connected" || !myAddress) {
+    return (
+      <div className="max-w-[720px] mx-auto px-8 py-12">
+        <EmptyState
+          icon={<Icons.wallet className="w-5 h-5" />}
+          title="Connect a wallet"
+          description="Connect your Cardano wallet to see your balance and activity."
+        />
+      </div>
+    );
+  }
+
   async function copyAddress() {
+    if (!myAddress) return;
     try {
       await navigator.clipboard.writeText(myAddress);
       pushToast("Address copied", "success");
@@ -165,7 +161,9 @@ export default function Wallet() {
             })}
           </div>
           <div className="text-[13px] text-text-dim mt-0.5">
-            Preview testnet ADA · use faucet to top up
+            {env.network === "Mainnet"
+              ? "Mainnet ADA · real value"
+              : "Preview testnet ADA · use faucet to top up"}
           </div>
         </div>
         <div className="grid grid-cols-3 border-t border-border">
@@ -319,7 +317,11 @@ export default function Wallet() {
         open={receiveOpen}
         onClose={() => setReceiveOpen(false)}
         title="Receive ADA"
-        subtitle="Share this address to receive tADA on Preview testnet"
+        subtitle={
+          env.network === "Mainnet"
+            ? "Share this address to receive ADA"
+            : "Share this address to receive tADA on Preview testnet"
+        }
         footer={
           <>
             <button className="btn" onClick={() => setReceiveOpen(false)}>

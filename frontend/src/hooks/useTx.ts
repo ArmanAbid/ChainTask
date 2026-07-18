@@ -1,16 +1,4 @@
-/**
- * useTx — bridges the connected Weld wallet to Lucid Evolution and exposes
- * one `useMutation` per tx builder.
- *
- * Each mutation:
- *   - lazily initializes Lucid against the connected wallet's enabled API
- *   - calls the matching builder from `lib/tx/builders.ts`
- *   - shows a "submitting…" toast → success toast with tx hash → error toast
- *   - invalidates relevant query keys on success so the UI refetches
- *
- * The hook returns `null` mutations until a wallet is connected, so
- * components can render disabled buttons cleanly while waiting.
- */
+// useTx - bridges the connected Weld wallet to Lucid Evolution and exposes
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useWallet as useWeldWallet } from "@ada-anvil/weld/react";
@@ -22,12 +10,14 @@ import {
   autoRefund,
   autoRelease,
   builderWithdraw,
+  cancelOpen,
   dispute,
   postJob,
   refund,
   release,
   resolve,
   selectBuilder,
+  submitCosignedTx,
   submitWork,
   updateJob,
   updateProfile,
@@ -36,6 +26,7 @@ import {
   type AutoRefundInput,
   type AutoReleaseInput,
   type BuilderWithdrawInput,
+  type CancelOpenInput,
   type DisputeInput,
   type PostJobInput,
   type RefundInput,
@@ -72,28 +63,55 @@ function useTxMutation<TInput>(
       const lucid = await getLucid(walletApi, walletKey);
       return fn(lucid, input);
     },
-    onSuccess: (txHash) => {
-      pushToast(`Tx submitted: ${shortTxHash(txHash)}`, "success");
-      for (const key of invalidateKeys) {
-        queryClient.invalidateQueries({ queryKey: key });
+    onSuccess: (result) => {
+      // Tx hash is 32 bytes = 64 hex chars. Anything much longer is a
+      // CBOR-encoded partial tx returned by a cosignMode call - different
+      // toast, no query invalidation (nothing hit chain yet).
+      if (result.length <= 80) {
+        pushToast(`Tx submitted: ${shortTxHash(result)}`, "success");
+        for (const key of invalidateKeys) {
+          queryClient.invalidateQueries({ queryKey: key });
+        }
+      } else {
+        pushToast(
+          "Ready to co-sign — share the hex with the other party",
+          "success",
+        );
       }
     },
     onError: (e) => {
-      const msg = e instanceof Error ? e.message : "Transaction failed";
+      const raw = e instanceof Error ? e.message : "Transaction failed";
+      // Humanize common chain errors so users don't see raw Plutus /
+      // Blockfrost noise.
+      let msg = raw;
+      if (/input.*already.*spent|BadInputsUTxO/i.test(raw)) {
+        msg =
+          "One of the inputs was already spent by a concurrent tx. Refresh the page and try again.";
+      } else if (/insufficient.*balance|InsufficientCollateralBalance|not enough Ada/i.test(raw)) {
+        msg =
+          "Not enough ADA in your wallet to cover the tx (escrow + fees). Top up and try again.";
+      } else if (/ValueNotConservedUTxO/i.test(raw)) {
+        msg =
+          "Tx value mismatch — the amount going in doesn't equal what's going out. Please refresh and try again.";
+      } else if (/OutsideValidityInterval/i.test(raw)) {
+        msg =
+          "Tx expired before submit. Please refresh and try again.";
+      } else if (/ScriptWitnessNotValidating|ExecutionCostsTooBig|EvaluationFailure/i.test(raw)) {
+        msg =
+          "The on-chain contract rejected this tx. Common causes: stale UTxO, wallet on wrong network, or a state mismatch. Refresh and try again.";
+      }
       pushToast(msg, "error");
     },
   });
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Public hooks — one per tx flow
-// ────────────────────────────────────────────────────────────────────────
+// Public hooks - one per tx flow
 
 export function usePostJob() {
   return useTxMutation<PostJobInput>(
     ["tx", "postJob"],
     (lucid, input) => postJob(lucid, input),
-    [["jobs"], ["clientJobs"]],
+    [["jobs"]],
   );
 }
 
@@ -101,7 +119,7 @@ export function useSelectBuilder() {
   return useTxMutation<SelectBuilderInput>(
     ["tx", "selectBuilder"],
     (lucid, input) => selectBuilder(lucid, input),
-    [["job"], ["jobs"], ["clientJobs"], ["builderJobs"]],
+    [["job"], ["jobs"]],
   );
 }
 
@@ -109,7 +127,7 @@ export function useSubmitWork() {
   return useTxMutation<SubmitWorkInput>(
     ["tx", "submit"],
     (lucid, input) => submitWork(lucid, input),
-    [["job"], ["jobs"], ["builderJobs"]],
+    [["job"], ["jobs"]],
   );
 }
 
@@ -133,7 +151,7 @@ export function useRefund() {
   return useTxMutation<RefundInput>(
     ["tx", "refund"],
     (lucid, input) => refund(lucid, input),
-    [["job"], ["jobs"], ["clientJobs"], ["builderJobs"]],
+    [["job"], ["jobs"]],
   );
 }
 
@@ -141,7 +159,7 @@ export function useBuilderWithdraw() {
   return useTxMutation<BuilderWithdrawInput>(
     ["tx", "builderWithdraw"],
     (lucid, input) => builderWithdraw(lucid, input),
-    [["job"], ["jobs"], ["builderJobs"]],
+    [["job"], ["jobs"]],
   );
 }
 
@@ -201,12 +219,31 @@ export function useArbitratorTimeout() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
+export function useCancelOpen() {
+  return useTxMutation<CancelOpenInput>(
+    ["tx", "cancelOpen"],
+    (lucid, input) => cancelOpen(lucid, input),
+    [["job"], ["jobs"]],
+  );
+}
+
+// useSubmitCosignedTx - second signer submits a partial-signed CBOR
+//
+// Takes the CBOR hex the first signer produced (via release/refund/resolve
+// with cosignMode=true), signs with the connected wallet, submits on chain.
+
+export function useSubmitCosignedTx() {
+  return useTxMutation<{ cborHex: string }>(
+    ["tx", "cosignSubmit"],
+    (lucid, input) => submitCosignedTx(lucid, input.cborHex),
+    [["job"], ["jobs"], ["reputation"]],
+  );
+}
+
 // Off-chain proposal pin
 //
-// Not a tx — just an IPFS write — but lives here for parity with other
+// Not a tx - just an IPFS write - but lives here for parity with other
 // write mutations and uniform toast/invalidation UX.
-// ────────────────────────────────────────────────────────────────────────
 
 export function usePinProposal() {
   const queryClient = useQueryClient();

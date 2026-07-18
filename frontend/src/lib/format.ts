@@ -4,9 +4,7 @@
 
 import type { Ada } from "@/types/domain";
 
-// ────────────────────────────────────────────────────────────────────────
 // Money
-// ────────────────────────────────────────────────────────────────────────
 
 const LOVELACE_PER_ADA = 1_000_000n;
 
@@ -48,9 +46,7 @@ export function formatLovelaceAsAda(
   return formatAda(lovelaceToAda(lovelace), opts);
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Addresses
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Truncate a bech32 address for compact display.
@@ -62,9 +58,7 @@ export function truncateAddress(addr: string, head = 8, tail = 6): string {
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Dates
-// ────────────────────────────────────────────────────────────────────────
 
 const SEC = 1000;
 const MIN = 60 * SEC;

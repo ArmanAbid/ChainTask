@@ -1,17 +1,4 @@
-/**
- * useReveal — adds a CSS class to an element when it enters the viewport.
- *
- * Use for scroll-triggered fade-in animations:
- *
- *   const ref = useReveal();
- *   return <section ref={ref} className="reveal">…</section>;
- *
- * The element starts hidden (opacity: 0, translateY) and animates in when
- * 20% of it is visible. Once revealed, it stays revealed (no re-trigger).
- *
- * Respects prefers-reduced-motion: if the user prefers reduced motion, the
- * element is revealed immediately with no animation.
- */
+// useReveal - adds a CSS class to an element when it enters the viewport.
 
 import { useEffect, useRef } from "react";
 

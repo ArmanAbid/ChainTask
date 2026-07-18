@@ -23,7 +23,7 @@ use chaintask/types.{
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Update — client edits job before a builder is selected.
+// Update - client edits job before a builder is selected.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Allowed to change:  job_cid, amount_lovelace, category
@@ -52,7 +52,7 @@ pub fn validate_update(
   expect Some(raw) = inline_datum_of(out)
   expect new_datum: EscrowDatum = raw
 
-  // Field-level immutability — only the three declared fields may change.
+  // Field-level immutability - only the three declared fields may change.
   let datum_ok = and {
       new_datum.client_address == old_datum.client_address,
       new_datum.builder_address == old_datum.builder_address,
@@ -86,7 +86,7 @@ pub fn validate_update(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Select — client picks a builder and locks them into the escrow.
+// Select - client picks a builder and locks them into the escrow.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Allowed to change:  builder_address (None → Some), selected_at, status
@@ -94,7 +94,7 @@ pub fn validate_update(
 // Signed by:          client only
 // State guard:        status == Open, builder_address must currently be None
 //
-// No config dependency — Select is purely a state transition.
+// No config dependency - Select is purely a state transition.
 //
 pub fn validate_select(
   tx: Transaction,
@@ -146,7 +146,7 @@ pub fn validate_select(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Submit — builder marks work delivered.
+// Submit - builder marks work delivered.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Allowed to change:  submitted_at, status
@@ -267,7 +267,7 @@ pub fn validate_amend_submission(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Release — happy path payout to builder, with platform fee to treasury.
+// Release - happy path payout to builder, with platform fee to treasury.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: client AND builder
@@ -288,8 +288,13 @@ pub fn validate_release(
 ) -> Bool {
   expect Some(builder_addr) = old_datum.builder_address
 
+  // Client-only Release: the state machine already protects the builder.
+  //   - status must be Submitted (builder controls this by submitting)
+  //   - funds must go to builder_address which was locked at Selection
+  //   - treasury cut is enforced by the validator
+  // Requiring a builder co-sig here was pure friction - it added no
+  // security since the builder can't change any of the enforced values.
   let client_signed = is_signed_by(tx, old_datum.client_address)
-  let builder_signed = is_signed_by(tx, builder_addr)
   let in_submitted_state = old_datum.status == Submitted
 
   let expected_builder_payout =
@@ -304,7 +309,6 @@ pub fn validate_release(
 
   and {
     client_signed,
-    builder_signed,
     in_submitted_state,
     builder_paid_enough,
     treasury_paid_enough,
@@ -312,13 +316,13 @@ pub fn validate_release(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Refund — both parties agree to cancel; full amount returns to client.
+// Refund - both parties agree to cancel; full amount returns to client.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: client AND builder
 // State guard:         status is Selected or Submitted
 // Output check:        amount_lovelace must be paid to client
-// No platform fee     — mutual cancellation is no-fault, no value extracted.
+// No platform fee     - mutual cancellation is no-fault, no value extracted.
 // No reputation change.
 //
 pub fn validate_refund(tx: Transaction, old_datum: EscrowDatum) -> Bool {
@@ -340,7 +344,36 @@ pub fn validate_refund(tx: Transaction, old_datum: EscrowDatum) -> Bool {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// BuilderWithdraw — builder unilaterally exits a Selected job.
+// CancelOpen - client unilaterally cancels an Open job before selection.
+// ───────────────────────────────────────────────────────────────────────────
+//
+// Required signature: client only
+// State guard:        status == Open (no builder selected)
+//                     builder_address == None
+// Output check:       full amount_lovelace paid to client
+// No platform fee     - job never advanced, no service was performed.
+// No reputation change (no builder was ever involved).
+//
+// Closes the gap where a client posts a job that no builder ever applies
+// to; without this, funds would be locked at the script address forever.
+//
+pub fn validate_cancel_open(tx: Transaction, old_datum: EscrowDatum) -> Bool {
+  let client_signed = is_signed_by(tx, old_datum.client_address)
+  let in_open_state = old_datum.status == Open
+  let no_builder = old_datum.builder_address == None
+  let paid_enough =
+    lovelace_paid_to(tx, old_datum.client_address) >= old_datum.amount_lovelace
+
+  and {
+    client_signed,
+    in_open_state,
+    no_builder,
+    paid_enough,
+  }
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// BuilderWithdraw - builder unilaterally exits a Selected job.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: builder only
@@ -396,7 +429,7 @@ pub fn validate_builder_withdraw(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Dispute — either party raises a dispute, locks in evidence CID.
+// Dispute - either party raises a dispute, locks in evidence CID.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: client OR builder (one is enough)
@@ -485,7 +518,7 @@ pub fn validate_dispute(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Resolve — arbitrator + winning party decide who gets the funds.
+// Resolve - arbitrator + winning party decide who gets the funds.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: arbitrator AND the winning party
@@ -499,7 +532,7 @@ pub fn validate_dispute(
 //     client receives ≥ amount
 //     treasury receives ≥ dispute_fee
 //
-// Treasury always keeps the dispute fee — it's the cost of using the
+// Treasury always keeps the dispute fee - it's the cost of using the
 // arbitration system, not a refundable deposit.
 //
 pub fn validate_resolve(
@@ -542,7 +575,7 @@ pub fn validate_resolve(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// AutoRelease — builder claims funds after submit deadline elapsed.
+// AutoRelease - builder claims funds after submit deadline elapsed.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: builder only (no client cooperation needed)
@@ -584,7 +617,7 @@ pub fn validate_auto_release(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// AutoRefund — client claims funds back after select deadline elapsed.
+// AutoRefund - client claims funds back after select deadline elapsed.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: client only (no builder cooperation needed)
@@ -615,7 +648,7 @@ pub fn validate_auto_refund(tx: Transaction, old_datum: EscrowDatum) -> Bool {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// ArbitratorTimeout — auto-resolve when arbitrator goes silent.
+// ArbitratorTimeout - auto-resolve when arbitrator goes silent.
 // ───────────────────────────────────────────────────────────────────────────
 //
 // Required signatures: dispute raiser only (they submitted evidence)
@@ -642,7 +675,7 @@ pub fn validate_arbitrator_timeout(
   let in_disputed_state = old_datum.status == Disputed
   let raiser_signed = is_signed_by(tx, raiser)
 
-  // arbitrator_timeout_seconds constant from types.ak — convert to ms.
+  // arbitrator_timeout_seconds constant from types.ak - convert to ms.
   let deadline_ms = raised_at_ms + arbitrator_timeout_seconds * 1000
   let deadline_passed =
     interval.is_entirely_after(tx.validity_range, deadline_ms)

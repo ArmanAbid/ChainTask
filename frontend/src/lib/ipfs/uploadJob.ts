@@ -1,6 +1,6 @@
 // Pinata uploader for job descriptions.
 //
-// We use fetch instead of axios — one fewer dependency, native to the browser,
+// We use fetch instead of axios - one fewer dependency, native to the browser,
 // and a hot path on the critical user flow ("post job"), so smaller is better.
 
 export interface JobData {
@@ -9,7 +9,7 @@ export interface JobData {
   skills: string[]
   budget_text: string
   // Optional: GitHub URL for the Web2 bridge. Builders attach this in their
-  // application payload, not here — included for client-posted reference work.
+  // application payload, not here - included for client-posted reference work.
   reference_url?: string
 }
 
@@ -60,7 +60,7 @@ export const uploadJobToIPFS = async (jobData: JobData): Promise<UploadResult> =
 }
 
 // Fetch a job description back from IPFS by CID.
-// Always reads from the gateway, never from a backend cache — the on-chain CID
+// Always reads from the gateway, never from a backend cache - the on-chain CID
 // is the source of truth, and a malicious frontend serving doctored content
 // would be detectable by anyone running their own gateway.
 export const fetchJobFromIPFS = async (cid: string): Promise<JobData> => {

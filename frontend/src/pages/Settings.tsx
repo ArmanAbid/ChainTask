@@ -1,16 +1,4 @@
-/**
- * Settings — account preferences, notifications, on-chain config.
- *
- * Sections:
- *   1. Account — display name + bio (inline edit, calls updateProfile on chain)
- *   2. Wallet — current wallet info + disconnect
- *   3. Notifications — local-storage-backed toggle preferences (off-chain UI state)
- *   4. On-chain config — read-only display of GlobalConfig from env + protocol constants
- *   5. Danger zone — disconnect wallet
- *
- * Nothing in this page reads mock data. Profile writes go through the
- * existing useUpdateProfile mutation which submits the tx on chain.
- */
+// Settings - profile edit + read-only on-chain config.
 
 import { useEffect, useState } from "react";
 import { PROTOCOL_PARAMS } from "@/config/protocol";

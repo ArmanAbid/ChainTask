@@ -1,18 +1,4 @@
-/**
- * MyProfile — your own profile view + edit form.
- *
- * Reuses PublicProfile's "view" sections for the connected wallet, plus
- * an edit panel that:
- *   - Lets you set display name, bio, avatar
- *   - Pins to IPFS via Pinata
- *   - Stores the new CID as a draft in localStorage (Week 6) — will become
- *     a real Cardano tx in Week 7
- *
- * The draft fallback means the entire profile UX works end-to-end NOW,
- * before the profile validator is deployed. When Week 7 lands and the
- * validator is on testnet, `saveDraftProfile` is replaced with `submitProfileTx`
- * and the rest of the UI stays put.
- */
+// MyProfile - own profile, edit form pins to IPFS then updates on chain.
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -94,9 +80,7 @@ function MyProfileContent({ address }: { address: string }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // View
-// ────────────────────────────────────────────────────────────────────────
 
 function ViewPanel({
   address,
@@ -221,9 +205,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Edit
-// ────────────────────────────────────────────────────────────────────────
 
 const MAX_NAME = 40;
 const MAX_BIO = 280;

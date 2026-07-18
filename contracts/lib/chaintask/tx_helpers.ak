@@ -64,7 +64,7 @@ pub fn lovelace_paid_to(tx: Transaction, recipient: Address) -> Int {
 /// input being spent, with an inline datum. Used by Update/Select/Submit
 /// where the escrow continues to live on-chain after the action.
 ///
-/// Returns None if there is no continuing output, or more than one — which
+/// Returns None if there is no continuing output, or more than one - which
 /// the caller should treat as a validation failure.
 pub fn continuing_output(
   tx: Transaction,
@@ -106,17 +106,31 @@ pub fn inline_datum_of(output: Output) -> Option<Data> {
 /// reference (read) this UTxO without consuming it; only the protocol admin
 /// can update the config by spending and recreating it.
 ///
-/// Returns None if the Admin NFT is not present in any reference input —
+/// Returns None if the Admin NFT is not present in any reference input -
 /// which the caller should treat as a validation failure for any branch
 /// that needs config (Release, AutoRelease, Resolve, Dispute, Update).
 pub fn find_global_config(
   tx: Transaction,
   admin_policy: PolicyId,
 ) -> Option<GlobalConfig> {
+  // Look for the "ChainTaskAdmin" NFT in reference inputs. The admin
+  // policy is unique per deployment (parameterized by a one-shot
+  // OutputReference at mint time), so no third party can forge one.
+  // The asset name matches what deploy.mjs / deploy-mainnet.mjs mint:
+  //   ADMIN_ASSET_NAME = "ChainTaskAdmin"
+  //     hex bytes      = 436861696e5461736b41646d696e
+  // Keep these in sync. If you rename the asset in the deploy script,
+  // update this hex string too and rebuild + redeploy.
   let config_input =
     list.find(
       tx.reference_inputs,
-      fn(input) { quantity_of(input.output.value, admin_policy, "") == 1 },
+      fn(input) {
+        quantity_of(
+          input.output.value,
+          admin_policy,
+          #"436861696e5461736b41646d696e",
+        ) >= 1
+      },
     )
 
   when config_input is {

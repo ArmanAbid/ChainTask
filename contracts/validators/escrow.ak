@@ -1,16 +1,16 @@
 //// ChainTask escrow validator.
 //// Per-redeemer rules to implement:
 ////
-////   Select  — only builder_address, selected_at, and status change; signed by client
-////   Submit  — only submitted_at and status change; signed by builder
-////   Release — client + builder sigs; pay builder_payout to builder, treasury_cut to platform;
+////   Select  - only builder_address, selected_at, and status change; signed by client
+////   Submit  - only submitted_at and status change; signed by builder
+////   Release - client + builder sigs; pay builder_payout to builder, treasury_cut to platform;
 ////             call reputation validator to increment count + volume
-////   Refund  — client + builder sigs; pay amount_lovelace to client (no fee)
-////   Dispute — client OR builder sig + dispute_fee from config added to UTxO; status -> Disputed
-////   Resolve — arbitrator + one party sig; distribute per resolution
-////   AutoRelease — slot >= submitted_at + auto_release_deadline; builder sig only
-////   AutoRefund  — slot >= selected_at + auto_refund_deadline; client sig only
-////   ArbitratorTimeout — slot >= dispute_raised_at + 14d; auto-resolves
+////   Refund  - client + builder sigs; pay amount_lovelace to client (no fee)
+////   Dispute - client OR builder sig + dispute_fee from config added to UTxO; status -> Disputed
+////   Resolve - arbitrator + one party sig; distribute per resolution
+////   AutoRelease - slot >= submitted_at + auto_release_deadline; builder sig only
+////   AutoRefund  - slot >= selected_at + auto_refund_deadline; client sig only
+////   ArbitratorTimeout - slot >= dispute_raised_at + 14d; auto-resolves
 ////
 //// Cross-cutting checks (every redeemer):
 ////   - output value matches expected (defends double-satisfaction)
@@ -20,15 +20,15 @@ use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use chaintask/escrow_logic.{
   validate_amend_submission, validate_arbitrator_timeout, validate_auto_refund,
-  validate_auto_release, validate_builder_withdraw, validate_dispute,
-  validate_refund, validate_release, validate_resolve, validate_select,
-  validate_submit, validate_update,
+  validate_auto_release, validate_builder_withdraw, validate_cancel_open,
+  validate_dispute, validate_refund, validate_release, validate_resolve,
+  validate_select, validate_submit, validate_update,
 }
 use chaintask/tx_helpers.{find_global_config}
 use chaintask/types.{
   AmendSubmission, Apply, ArbitratorTimeout, AutoRefund, AutoRelease,
-  BuilderWithdraw, Dispute, EscrowDatum, EscrowRedeemer, Refund, Release,
-  Resolve, Select, Submit, Update,
+  BuilderWithdraw, CancelOpen, Dispute, EscrowDatum, EscrowRedeemer, Refund,
+  Release, Resolve, Select, Submit, Update,
 }
 
 /// The validator is parameterized by the Admin Policy ID to securely locate 
@@ -95,6 +95,8 @@ validator escrow(admin_policy: PolicyId) {
         expect Some(config) = find_global_config(tx, admin_policy)
         validate_arbitrator_timeout(tx, d, config)
       }
+
+      CancelOpen -> validate_cancel_open(tx, d)
     }
   }
 

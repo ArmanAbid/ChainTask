@@ -1,37 +1,15 @@
-/**
- * Lucid Data schemas matching the Aiken contract types.
- *
- * Every schema here is the byte-exact wire form that the Plutus
- * validators expect. The field order in each `Data.Object` is significant:
- * Plutus encodes objects as positional Constr fields, so reordering a
- * field here would silently break decoding/encoding without a TS error.
- *
- * Quick refresher on Plutus encoding:
- *   - Aiken `Int`         → Data.Integer  (bigint)
- *   - Aiken `ByteArray`   → Data.Bytes    (lowercase hex string)
- *   - Aiken `Option<T>`   → Data.Nullable (T | null) — Some=Constr 0, None=Constr 1
- *   - Aiken `List<T>`     → Data.Array
- *   - Single-variant type → Data.Object (Constr 0 with positional fields)
- *   - Multi-variant enum  → Data.Enum (one variant per Constr index)
- *
- * Address encoding follows Plutus V3 (cardano/address from stdlib):
- *   Address       = { paymentCredential, stakeCredential? }
- *   Credential    = Constr 0 (PubKey) | Constr 1 (Script), each carrying a hash
- *   StakeCredential = Constr 0 (Inline) | Constr 1 (Pointer, unused in our app)
- */
+// Lucid Data schemas matching the Aiken contract types.
 
 import { Data } from "@lucid-evolution/lucid";
 
-// ────────────────────────────────────────────────────────────────────────
 // Address  (matches Aiken's cardano/address.Address)
-// ────────────────────────────────────────────────────────────────────────
 
 const CredentialSchema = Data.Enum([
-  // VerificationKey { hash: ByteArray } — Constr 0
+  // VerificationKey { hash: ByteArray } - Constr 0
   Data.Object({
     VerificationKey: Data.Tuple([Data.Bytes({ minLength: 28, maxLength: 28 })]),
   }),
-  // Script { hash: ByteArray } — Constr 1
+  // Script { hash: ByteArray } - Constr 1
   Data.Object({
     Script: Data.Tuple([Data.Bytes({ minLength: 28, maxLength: 28 })]),
   }),
@@ -40,11 +18,11 @@ export type CredentialT = Data.Static<typeof CredentialSchema>;
 export const Credential = CredentialSchema as unknown as CredentialT;
 
 const StakeCredentialSchema = Data.Enum([
-  // Inline { credential } — Constr 0
+  // Inline { credential } - Constr 0
   Data.Object({
     Inline: Data.Tuple([CredentialSchema]),
   }),
-  // Pointer { slot, tx_index, cert_index } — Constr 1 (we never construct
+  // Pointer { slot, tx_index, cert_index } - Constr 1 (we never construct
   // these; pointer addresses are extremely rare. Included so decoding
   // doesn't break on existing UTxOs that happen to use them.)
   Data.Object({
@@ -64,9 +42,7 @@ const AddressSchema = Data.Object({
 export type AddressT = Data.Static<typeof AddressSchema>;
 export const Address = AddressSchema as unknown as AddressT;
 
-// ────────────────────────────────────────────────────────────────────────
 // Status enum
-// ────────────────────────────────────────────────────────────────────────
 
 const StatusSchema = Data.Enum([
   Data.Literal("Open"),
@@ -79,7 +55,6 @@ const StatusSchema = Data.Enum([
 export type StatusT = Data.Static<typeof StatusSchema>;
 export const Status = StatusSchema as unknown as StatusT;
 
-// ────────────────────────────────────────────────────────────────────────
 // EscrowDatum
 //
 // Field order MUST match types.ak exactly:
@@ -87,7 +62,6 @@ export const Status = StatusSchema as unknown as StatusT;
 //   amount_lovelace, category, created_at, selected_at, submitted_at,
 //   submission_cid, auto_release_deadline, auto_refund_deadline,
 //   dispute_raised_by, dispute_raised_at, dispute_evidence_cid, status.
-// ────────────────────────────────────────────────────────────────────────
 
 const EscrowDatumSchema = Data.Object({
   client_address: AddressSchema,
@@ -110,9 +84,7 @@ const EscrowDatumSchema = Data.Object({
 export type EscrowDatumT = Data.Static<typeof EscrowDatumSchema>;
 export const EscrowDatum = EscrowDatumSchema as unknown as EscrowDatumT;
 
-// ────────────────────────────────────────────────────────────────────────
 // EscrowRedeemer
-// ────────────────────────────────────────────────────────────────────────
 // EscrowRedeemer
 //
 // Variant order MUST match types.ak EXACTLY. Index drift silently breaks
@@ -131,7 +103,6 @@ export const EscrowDatum = EscrowDatumSchema as unknown as EscrowDatumT;
 //  10. AutoRelease
 //  11. AutoRefund
 //  12. ArbitratorTimeout
-// ────────────────────────────────────────────────────────────────────────
 
 const EscrowRedeemerSchema = Data.Enum([
   Data.Literal("Apply"),
@@ -165,13 +136,12 @@ const EscrowRedeemerSchema = Data.Enum([
   Data.Literal("AutoRelease"),
   Data.Literal("AutoRefund"),
   Data.Literal("ArbitratorTimeout"),
+  Data.Literal("CancelOpen"),
 ]);
 export type EscrowRedeemerT = Data.Static<typeof EscrowRedeemerSchema>;
 export const EscrowRedeemer = EscrowRedeemerSchema as unknown as EscrowRedeemerT;
 
-// ────────────────────────────────────────────────────────────────────────
 // ReputationDatum
-// ────────────────────────────────────────────────────────────────────────
 
 const ReputationDatumSchema = Data.Object({
   builder_address: AddressSchema,
@@ -208,9 +178,7 @@ const ReputationRedeemerSchema = Data.Enum([
 export type ReputationRedeemerT = Data.Static<typeof ReputationRedeemerSchema>;
 export const ReputationRedeemer = ReputationRedeemerSchema as unknown as ReputationRedeemerT;
 
-// ────────────────────────────────────────────────────────────────────────
 // ProfileDatum / ProfileRedeemer
-// ────────────────────────────────────────────────────────────────────────
 
 const ProfileDatumSchema = Data.Object({
   owner_address: AddressSchema,
@@ -219,19 +187,23 @@ const ProfileDatumSchema = Data.Object({
 export type ProfileDatumT = Data.Static<typeof ProfileDatumSchema>;
 export const ProfileDatum = ProfileDatumSchema as unknown as ProfileDatumT;
 
-const ProfileRedeemerSchema = Data.Enum([
-  Data.Object({
-    UpdateProfile: Data.Object({
-      new_profile_cid: Data.Bytes({ minLength: 1, maxLength: 64 }),
-    }),
-  }),
-]);
+// ProfileRedeemer has one variant (UpdateProfile) in the contract. If we
+// wrap a single variant in `Data.Enum`, TypeBox's `Type.Union` collapses
+// the array to just the item (see @sinclair/typebox union.mjs), which
+// interacts badly with Lucid's Enum shape rewriter and produces a schema
+// castTo can't traverse - the encoder crashes with "Could not type cast
+// to bytes." Since Aiken's `UpdateProfile { new_profile_cid: ByteArray }`
+// compiles to `Constr 0 [ByteArray]`, and `Data.Object` with hasConstr:true
+// also produces `Constr 0 [...]`, we can encode as a plain Object and
+// call it as `Data.to({ new_profile_cid: hex }, ProfileRedeemer)`. Same
+// on-chain shape, no single-variant enum bug.
+const ProfileRedeemerSchema = Data.Object({
+  new_profile_cid: Data.Bytes({ minLength: 1, maxLength: 64 }),
+});
 export type ProfileRedeemerT = Data.Static<typeof ProfileRedeemerSchema>;
 export const ProfileRedeemer = ProfileRedeemerSchema as unknown as ProfileRedeemerT;
 
-// ────────────────────────────────────────────────────────────────────────
 // GlobalConfig (reference UTxO holding protocol params)
-// ────────────────────────────────────────────────────────────────────────
 
 const GlobalConfigSchema = Data.Object({
   treasury_address: AddressSchema,

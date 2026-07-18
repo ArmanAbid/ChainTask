@@ -1,10 +1,4 @@
-/**
- * Reputation data access.
- *
- * Source of truth: reputation validator UTxOs. One UTxO per builder.
- *
- * STATUS (Week 5): Empty until contracts deploy.
- */
+// Reputation data access.
 
 import { env } from "@/config/env";
 import { blockfrost } from "@/lib/cardano/blockfrost";

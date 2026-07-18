@@ -68,7 +68,7 @@ pub fn escrow_redeemer_for_input(
 }
 
 /// Prepend an item to a list and truncate to at most `cap` elements.
-/// Used for recent_job_cids — bounded mini-history that grows from the front.
+/// Used for recent_job_cids - bounded mini-history that grows from the front.
 pub fn prepend_capped(
   item: ByteArray,
   list_: List<ByteArray>,
@@ -151,7 +151,7 @@ pub fn validate_increment_on_release(
   }
 }
 
-// IncrementOnWithdraw — fires on escrow's BuilderWithdraw redeemer
+// IncrementOnWithdraw - fires on escrow's BuilderWithdraw redeemer
 
 pub fn validate_increment_on_withdraw(
   tx: Transaction,
@@ -203,7 +203,7 @@ pub fn validate_increment_on_withdraw(
   }
 }
 
-// IncrementDisputeOutcome — fires on Resolve or ArbitratorTimeout
+// IncrementDisputeOutcome - fires on Resolve or ArbitratorTimeout
 
 pub fn validate_increment_dispute_outcome(
   tx: Transaction,

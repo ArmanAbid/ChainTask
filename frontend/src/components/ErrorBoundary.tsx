@@ -1,10 +1,4 @@
-/**
- * Top-level error boundary.
- *
- * Catches uncaught errors in the React tree and renders a friendly screen
- * with a refresh option. Logs the underlying error to the console for
- * debugging without exposing details to the user.
- */
+// Top-level error boundary.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 

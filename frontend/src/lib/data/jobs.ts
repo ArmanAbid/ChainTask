@@ -1,22 +1,4 @@
-/**
- * Jobs data access.
- *
- * Source of truth: escrow validator UTxOs on chain. Off-chain content
- * (job title/description/skills) is pinned to IPFS and referenced by CID
- * on the datum.
- *
- * STATUS (Week 5): All methods return empty results because contracts
- * aren't deployed yet. The shape is final — Week 7 fills in the bodies.
- *
- * Reconstructing a Job requires:
- *   1. Fetching the escrow UTxO from Blockfrost
- *   2. Decoding its datum (OnchainEscrowDatum)
- *   3. Fetching the IPFS-pinned JobDescription via the jobCid
- *   4. Merging into a Job (domain type)
- *
- * Step 1+2 give us status, addresses, amounts. Step 3 gives us
- * title/description/skills. Step 4 is pure transformation.
- */
+// Jobs data access.
 
 import { env } from "@/config/env";
 import { blockfrost } from "@/lib/cardano/blockfrost";
@@ -27,9 +9,7 @@ import type { EscrowUtxo } from "@/types/onchain";
 import type { Job, JobStatus } from "@/types/domain";
 import type { JobDescription } from "@/lib/ipfs";
 
-// ────────────────────────────────────────────────────────────────────────
 // Reads
-// ────────────────────────────────────────────────────────────────────────
 
 /** All currently-open jobs (any status that has an active escrow UTxO). */
 export async function listOpenJobs(): Promise<Job[]> {
@@ -65,9 +45,7 @@ export async function getJobById(id: string): Promise<Job | null> {
   return toJob(escrow);
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Transform: EscrowUtxo + IPFS content → Job
-// ────────────────────────────────────────────────────────────────────────
 
 async function toJob(escrow: EscrowUtxo): Promise<Job> {
   const desc = await fetchJson<JobDescription>(escrow.datum.jobCid).catch<

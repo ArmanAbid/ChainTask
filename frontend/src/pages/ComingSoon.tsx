@@ -1,8 +1,5 @@
-/**
- * Placeholder for routes that don't exist yet. Used inside the AppShell
- * so the sidebar nav is still visible — clicking a nav item shows the
- * "this section ships in week X" message instead of a broken page.
- */
+// Placeholder for routes not built yet. Rendered inside AppShell so nav
+// still works.
 
 export function ComingSoonPage({ title }: { title: string }) {
   return (
@@ -11,7 +8,7 @@ export function ComingSoonPage({ title }: { title: string }) {
         <div className="text-[11px] uppercase tracking-wider text-accent font-mono mb-2">Coming soon</div>
         <h1 className="text-2xl font-semibold tracking-tight mb-2">{title}</h1>
         <p className="text-[13.5px] text-text-dim max-w-[460px] mx-auto">
-          This section will be unlocked in a later hackathon week. The smart contracts are complete (78 unit tests passing) — frontend ships incrementally so each week's release is real, not a demo.
+          Not ready yet. Check back soon.
         </p>
       </div>
     </div>

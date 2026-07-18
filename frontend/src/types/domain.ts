@@ -1,24 +1,12 @@
-/**
- * Domain types — display-ready forms the UI components consume.
- *
- * Two main differences from ./onchain.ts:
- *   - ADA amounts as plain numbers (since 1 ADA fits easily in JS number)
- *     for math + formatting, with lovelace kept as bigint where precision matters
- *   - Timestamps as JS Date objects so React components can format them
- *
- * Convert between layers using the helpers in src/lib/format.ts and the
- * decoders in src/lib/cardano/decoders.ts.
- */
+// Domain types - display-ready forms the UI components consume.
 
 import type { OnchainStatus } from "./onchain";
 
-// ────────────────────────────────────────────────────────────────────────
 // Status (frontend-only extensions)
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Frontend job status extends on-chain status with terminal states that
- * don't exist on chain. A "completed" job has no escrow UTxO anymore — it
+ * don't exist on chain. A "completed" job has no escrow UTxO anymore - it
  * was reconstructed from chain history. Same for "cancelled".
  */
 export type JobStatus =
@@ -32,16 +20,12 @@ export type JobStatus =
 /** A user's current "lens" into the app. Affects sidebar nav + dashboard copy. */
 export type Role = "client" | "builder" | "arbitrator";
 
-// ────────────────────────────────────────────────────────────────────────
 // Money
-// ────────────────────────────────────────────────────────────────────────
 
 /** ADA as a plain number, intended for display. Precision-safe up to ~9 trillion ADA. */
 export type Ada = number;
 
-// ────────────────────────────────────────────────────────────────────────
 // Job
-// ────────────────────────────────────────────────────────────────────────
 
 export interface Job {
   /** Composite id: `${txHash}#${outputIndex}` of the active escrow UTxO. */
@@ -55,7 +39,7 @@ export interface Job {
   skills: string[];
   /**
    * Off-chain delivery timeline in days, sourced from IPFS JobDescription.
-   * Soft commitment — not enforced by the validator. Undefined for older
+   * Soft commitment - not enforced by the validator. Undefined for older
    * jobs posted before this field existed.
    */
   deadlineDays?: number;
@@ -86,9 +70,7 @@ export interface Job {
   status: JobStatus;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Builder reputation
-// ────────────────────────────────────────────────────────────────────────
 
 export interface BuilderReputation {
   builderAddress: string;
@@ -104,9 +86,7 @@ export interface BuilderReputation {
   recentJobCids: string[];
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Profile (self-attested)
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * The off-chain content pointed to by a Profile UTxO's profile_cid.
@@ -124,7 +104,7 @@ export interface ProfileContent {
 /**
  * Combined view of a profile: the chain UTxO + the resolved off-chain content.
  *
- * Profiles are self-attested — anyone can claim any name. The UI should
+ * Profiles are self-attested - anyone can claim any name. The UI should
  * make this clear by always showing the verified wallet address alongside
  * the name.
  */
@@ -135,9 +115,7 @@ export interface Profile {
   content: ProfileContent | null;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Protocol config
-// ────────────────────────────────────────────────────────────────────────
 
 export interface ProtocolConfig {
   treasuryAddress: string;
@@ -146,9 +124,7 @@ export interface ProtocolConfig {
   disputeFee: Ada;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Network
-// ────────────────────────────────────────────────────────────────────────
 
 export type CardanoNetwork = "Mainnet" | "Preview" | "Preprod";
 

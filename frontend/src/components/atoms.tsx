@@ -1,10 +1,4 @@
-/**
- * Small reusable display components used across screens.
- *
- * No data dependencies. Each component takes its props and renders.
- * USD conversion was removed — would need a live price feed, which we
- * skip for the hackathon. Add later if desired.
- */
+// Small reusable display components used across screens.
 
 import type { JobStatus, BuilderReputation, Profile } from "@/types/domain";
 import { gatewayUrl } from "@/lib/ipfs";

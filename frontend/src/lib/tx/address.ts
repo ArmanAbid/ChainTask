@@ -1,14 +1,4 @@
-/**
- * Address conversions.
- *
- * The frontend works in bech32 strings (`addr1...`, `addr_test1...`) but
- * the on-chain world uses Plutus V3 `Address` records. This module is
- * the only place that knows how to bridge the two; everything else
- * stays string-based.
- *
- * `bech32ToAddress` is for OUTGOING datums (building txs).
- * `addressToBech32` is for INCOMING datums (after decoding chain data).
- */
+// Address conversions.
 
 import { credentialToAddress, getAddressDetails } from "@lucid-evolution/lucid";
 import type { Network } from "@lucid-evolution/lucid";
@@ -72,6 +62,6 @@ export function addressToBech32(addr: AddressT, network: Network): string | null
     return credentialToAddress(network, payment, stake);
   }
 
-  // Pointer — give up.
+  // Pointer - give up.
   return null;
 }

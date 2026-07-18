@@ -1,7 +1,7 @@
 /**
  * Protocol config (reference UTxO holding the admin NFT).
  *
- * STATUS (Week 5): Empty until contracts deploy.
+ * STATUS (earlier): Empty until contracts deploy.
  */
 
 import { env } from "@/config/env";

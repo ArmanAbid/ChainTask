@@ -1,25 +1,4 @@
-/**
- * Query hooks built on TanStack Query.
- *
- * All chain reads go through these hooks. Components don't call the data
- * layer directly — they `useJobs()`, `useJob(id)`, etc. This gives us:
- *
- *   - Automatic caching (one query for `useJobs()` shared across all
- *     pages that need the job list)
- *   - Automatic deduplication (parallel renders share one in-flight request)
- *   - Loading/error states without manual useState wiring
- *   - Cache invalidation: `queryClient.invalidateQueries({ queryKey: ["jobs"] })`
- *     after a mutation to refetch wherever jobs are displayed
- *
- * Query key conventions:
- *   - `["jobs"]`                      — list of all open jobs
- *   - `["jobs", "client", address]`   — jobs posted by a specific client
- *   - `["jobs", "builder", address]`  — jobs assigned to a specific builder
- *   - `["job", id]`                   — single job by escrow UTxO ref
- *   - `["reputation", address]`       — builder reputation
- *   - `["profile", address]`          — profile UTxO + IPFS content
- *   - `["protocolConfig"]`            — GlobalConfig reference UTxO
- */
+// Query hooks built on TanStack Query.
 
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -33,9 +12,7 @@ import { getProfileByOwner } from "@/lib/data/profile";
 import { getProtocolConfig } from "@/lib/data/config";
 import { listProposals } from "@/lib/ipfs";
 
-// ────────────────────────────────────────────────────────────────────────
 // Jobs
-// ────────────────────────────────────────────────────────────────────────
 
 export function useJobs() {
   return useQuery({
@@ -68,9 +45,7 @@ export function useBuilderJobs(builderAddress: string | null | undefined) {
   });
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Reputation
-// ────────────────────────────────────────────────────────────────────────
 
 export function useReputation(builderAddress: string | null | undefined) {
   return useQuery({
@@ -81,9 +56,7 @@ export function useReputation(builderAddress: string | null | undefined) {
   });
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Profile
-// ────────────────────────────────────────────────────────────────────────
 
 export function useProfile(ownerAddress: string | null | undefined) {
   return useQuery({
@@ -93,9 +66,7 @@ export function useProfile(ownerAddress: string | null | undefined) {
   });
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Protocol config
-// ────────────────────────────────────────────────────────────────────────
 
 export function useProtocolConfig() {
   return useQuery({
@@ -106,9 +77,7 @@ export function useProtocolConfig() {
   });
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Proposals (off-chain, via IPFS metadata listing)
-// ────────────────────────────────────────────────────────────────────────
 
 export function useProposals(jobId: string | null | undefined) {
   return useQuery({

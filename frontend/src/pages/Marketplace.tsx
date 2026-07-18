@@ -1,16 +1,4 @@
-/**
- * Marketplace — browse Open jobs on Preview testnet.
- *
- * Layout mirrors the source design: a full-width search input + inline
- * category pill buttons across the top, then a single-column card with
- * one row per job. Click a row → JobDetail.
- *
- * Each row resolves the client's profile (name + avatar) from the on-chain
- * profile UTxO via useProfile(). The on-chain Open jobs come from useJobs().
- *
- * Empty-state: until contracts are deployed (env.contractsDeployed=false),
- * we show a friendly "no jobs yet" message instead of the wired list.
- */
+// Marketplace - Open jobs, click a row to open detail.
 
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -49,6 +37,10 @@ export default function Marketplace() {
 
   const filtered = useMemo(() => {
     return jobs.filter((j) => {
+      // Marketplace is a browsing surface: only Open jobs are actionable
+      // for prospective builders. Selected/Submitted/Disputed jobs live
+      // in the participants' own dashboards (My jobs / Dispute queue).
+      if (j.status !== "Open") return false;
       if (cat !== "All" && j.category.toLowerCase() !== cat.toLowerCase()) {
         return false;
       }
@@ -76,7 +68,7 @@ export default function Marketplace() {
             ) : (
               <>
                 {filtered.length} open job{filtered.length === 1 ? "" : "s"}{" "}
-                · escrow funded on Cardano Preview
+                · escrow funded on Cardano {env.network}
               </>
             )}
           </div>
@@ -166,9 +158,7 @@ export default function Marketplace() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Subcomponents
-// ────────────────────────────────────────────────────────────────────────
 
 function JobRow({ job, onOpen }: { job: Job; onOpen: () => void }) {
   const { data: profile } = useProfile(job.clientAddress);

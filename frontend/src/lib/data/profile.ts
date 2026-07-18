@@ -1,26 +1,4 @@
-/**
- * Profile data access.
- *
- * Source of truth: profile validator UTxOs on chain. The on-chain datum
- * carries only the IPFS CID; actual content (display name, bio, avatar)
- * is fetched from IPFS.
- *
- * STATUS (Week 6): The chain read returns null because contracts aren't
- * deployed yet. The IPFS read works against any pinned content. The
- * "save profile" flow has two paths:
- *
- *   - **Production** (contracts deployed): pin to IPFS → build a tx that
- *     either creates or updates the Profile UTxO → user signs → tx
- *     submits → on confirm, refetch.
- *   - **Draft mode** (contracts not deployed yet): pin to IPFS, store
- *     the resulting CID + content in localStorage. The Profile screen
- *     reads from localStorage. This lets you build and test the full
- *     UX end-to-end before Week 7's deploy.
- *
- * Either path leaves us in the same state at the end (CID points at the
- * latest profile JSON on IPFS); the only difference is whether the CID
- * is recorded on-chain or in localStorage.
- */
+// Profile data access.
 
 import { env } from "@/config/env";
 import { blockfrost } from "@/lib/cardano/blockfrost";
@@ -29,16 +7,14 @@ import { fetchJson } from "@/lib/ipfs";
 import type { Profile, ProfileContent } from "@/types/domain";
 import type { ProfileUtxo } from "@/types/onchain";
 
-// ────────────────────────────────────────────────────────────────────────
 // Reads
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Fetch a profile by owner address. Returns null if the address has no
- * profile UTxO yet (the common case — profiles are lazily created).
+ * profile UTxO yet (the common case - profiles are lazily created).
  *
  * When contracts aren't deployed, falls back to localStorage so the
- * editing flow works end-to-end during the hackathon.
+ * editing flow works end-to-end during the launch.
  */
 export async function getProfileByOwner(
   ownerAddress: string,
@@ -63,7 +39,7 @@ export async function getProfileByOwner(
  * Hydrate a profile UTxO with its off-chain content.
  *
  * If the IPFS fetch fails (gateway down, content not pinned anymore, etc.)
- * we still return a Profile with `content: null` rather than throwing —
+ * we still return a Profile with `content: null` rather than throwing -
  * the UI can fall back to showing just the address.
  */
 async function resolveProfile(p: ProfileUtxo): Promise<Profile> {
@@ -77,9 +53,7 @@ async function resolveProfile(p: ProfileUtxo): Promise<Profile> {
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Draft storage (Week 6 only — replaced by real tx flow in Week 7)
-// ────────────────────────────────────────────────────────────────────────
+// Draft storage (earlier only - replaced by real tx flow in earlier)
 
 const DRAFT_KEY_PREFIX = "chaintask:profile-draft:";
 
@@ -115,7 +89,7 @@ function readDraftProfile(ownerAddress: string): Profile | null {
 /**
  * Save a draft profile to localStorage.
  *
- * In production (Week 7+), this becomes a tx submission instead. For now
+ * In production (earlier+), this becomes a tx submission instead. For now
  * it lets users edit their profile and see the result reflected
  * everywhere across the UI.
  */

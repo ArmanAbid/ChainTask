@@ -1,15 +1,4 @@
-/**
- * Thin Blockfrost wrapper.
- *
- * Only the endpoints ChainTask actually needs. Returns Lucid-compatible
- * shapes where possible so we can hand results straight to the tx builder
- * in later weeks.
- *
- * Uses `fetch` rather than the `@blockfrost/blockfrost-js` SDK because:
- *   1. Smaller bundle (~50KB savings vs the SDK)
- *   2. The SDK is Node-centric and brings polyfills we don't need
- *   3. We only call ~5 endpoints
- */
+// Thin Blockfrost wrapper.
 
 import { env } from "@/config/env";
 
@@ -36,9 +25,7 @@ async function blockfrostGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Types matching Blockfrost responses (subset)
-// ────────────────────────────────────────────────────────────────────────
 
 export interface BfUtxo {
   tx_hash: string;
@@ -58,9 +45,7 @@ export interface BfAddressInfo {
   script: boolean;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // API
-// ────────────────────────────────────────────────────────────────────────
 
 export const blockfrost = {
   /**
@@ -140,9 +125,7 @@ export const blockfrost = {
   },
 };
 
-// ────────────────────────────────────────────────────────────────────────
 // Helpers
-// ────────────────────────────────────────────────────────────────────────
 
 /** Get the lovelace amount from a Blockfrost amount array. */
 export function lovelaceFromAmount(

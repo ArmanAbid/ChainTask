@@ -1,10 +1,4 @@
-/**
- * Dashboard — landing page after wallet connect.
- *
- * Shows KPI summary + active jobs list, role-aware. Lists are empty until
- * contracts deploy (Week 7). Empty-state copy explains what's happening
- * honestly — this is a hackathon build mid-development.
- */
+// Dashboard - landing page after connect.
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -22,7 +16,7 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Depend on the actual primitive values, not the object wrappers — those
+  // Depend on the actual primitive values, not the object wrappers - those
   // are recreated every render and would cause an infinite re-fetch loop.
   const address = wallet.status === "connected" ? wallet.address : null;
   useEffect(() => {
@@ -104,7 +98,6 @@ export default function Dashboard() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 
 function JobRow({ job, role }: { job: Job; role: string }) {
   const counterpartyAddr = role === "client" ? job.builderAddress : job.clientAddress;
@@ -180,7 +173,7 @@ function EmptyJobList({ role }: { role: string }) {
               ? <>Find work in the <Link to="/app/marketplace" className="text-accent hover:underline">marketplace</Link>.</>
               : <>You'll see disputes here once they're assigned to your wallet.</>
         ) : (
-          <>The on-chain protocol deploys on Cardano {env.network} in Week 7 of the hackathon. Posting jobs and applying as a builder will work as soon as the smart contracts are live.</>
+          <>The on-chain protocol deploys on Cardano {env.network} in earlier of the launch. Posting jobs and applying as a builder will work as soon as the smart contracts are live.</>
         )}
       </div>
     </div>
@@ -194,7 +187,7 @@ function DeploymentBanner() {
       <div className="text-[12.5px] text-text-dim">
         Smart contracts ({" "}
         <a href="https://github.com/ArmanAbid/ChainTask" target="_blank" rel="noopener noreferrer" className="text-text hover:underline">78 unit tests passing</a>
-        ) deploy to Cardano {env.network} in Week 7. Until then, lists are empty. Your wallet shown here is live.
+        ) deploy to Cardano {env.network} in earlier. Until then, lists are empty. Your wallet shown here is live.
       </div>
     </div>
   );

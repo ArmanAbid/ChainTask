@@ -1,4 +1,4 @@
-//// Smoke tests — confirm types compile and constants are sensible.
+//// Smoke tests - confirm types compile and constants are sensible.
 //// Real validator branch tests live in escrow_tests.ak.
 
 use chaintask/types.{

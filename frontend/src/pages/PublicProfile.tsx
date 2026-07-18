@@ -1,16 +1,4 @@
-/**
- * PublicProfile — view someone else's builder/client profile.
- *
- * Shows:
- *   - Self-attested identity (name, bio, avatar) — if they've set a profile
- *   - Reputation stats (completed jobs, volume, dispute record) — if they've
- *     completed at least one job
- *   - Active jobs (jobs where they're currently selected as builder)
- *   - Recent job CIDs (from rep datum)
- *
- * Always shows the verified address as the source of truth, with the
- * display name shown as flavor. This makes self-attestation explicit.
- */
+// PublicProfile - another wallet's profile.
 
 import { Link, useParams } from "react-router-dom";
 import {
@@ -189,7 +177,7 @@ function PublicProfileContent({ address }: { address: string }) {
             )}
         </div>
 
-        {/* Side — reputation stats */}
+        {/* Side - reputation stats */}
         <aside className="space-y-4">
           <Section title="Reputation">
             {repLoading ? (

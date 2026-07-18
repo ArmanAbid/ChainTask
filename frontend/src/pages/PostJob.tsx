@@ -1,22 +1,4 @@
-/**
- * PostJob — create a new escrow on Cardano Preview testnet.
- *
- * Flow on submit:
- *   1. Validate every field client-side (including arbitrator ≠ client).
- *   2. Pin the JobDescription JSON to IPFS (Pinata). Returns a CID.
- *   3. Call the postJob tx builder via useTx mutation hook.
- *      - Lucid builds a tx that pays `budget` ADA to the escrow script
- *        address with an inline EscrowDatum referencing the CID.
- *      - Wallet pops up to sign.
- *      - Tx submits to Preview testnet.
- *   4. On success: toast with tx hash, navigate to marketplace where the
- *      new job will appear (in Open status) within ~30s of confirmation.
- *
- * Arbitrator note: in this version the client manually enters an
- * arbitrator address. Building a directory of vetted arbitrators is
- * future work. For now any valid Cardano address works — the chosen
- * arbitrator only ever runs code if a dispute is raised.
- */
+// PostJob - pin the description to IPFS then submit the postJob tx.
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -75,38 +57,38 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
     title.length === 0
       ? "Required"
       : title.length > MAX_TITLE
-      ? `Max ${MAX_TITLE} characters`
-      : null;
+        ? `Max ${MAX_TITLE} characters`
+        : null;
   const descError =
     description.length === 0
       ? "Required"
       : description.length > MAX_DESCRIPTION
-      ? `Max ${MAX_DESCRIPTION} characters`
-      : null;
+        ? `Max ${MAX_DESCRIPTION} characters`
+        : null;
   const categoryError =
     category.length === 0
       ? "Required"
       : new TextEncoder().encode(category).length > MAX_CATEGORY
-      ? `Max ${MAX_CATEGORY} bytes (on-chain field)`
-      : null;
+        ? `Max ${MAX_CATEGORY} bytes (on-chain field)`
+        : null;
   const budgetNum = Number(budgetAda);
   const budgetError = !budgetAda
     ? "Required"
     : Number.isNaN(budgetNum) || budgetNum <= 0
-    ? "Must be a positive number"
-    : budgetNum < PROTOCOL_PARAMS.minJob
-    ? `Minimum is ₳${PROTOCOL_PARAMS.minJob}`
-    : null;
+      ? "Must be a positive number"
+      : budgetNum < PROTOCOL_PARAMS.minJob
+        ? `Minimum is ₳${PROTOCOL_PARAMS.minJob}`
+        : null;
   const arbitratorError = validateArbitrator(arbitratorAddress, clientAddress);
 
   const deadlineNum = Number(deadlineDays);
   const deadlineError = !deadlineDays
     ? "Required"
     : !Number.isInteger(deadlineNum) || deadlineNum <= 0
-    ? "Must be a positive whole number"
-    : deadlineNum > 365
-    ? "Must be 365 days or fewer"
-    : null;
+      ? "Must be a positive whole number"
+      : deadlineNum > 365
+        ? "Must be 365 days or fewer"
+        : null;
 
   const formValid =
     !titleError &&
@@ -154,8 +136,8 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
         e instanceof IpfsError
           ? e.message
           : e instanceof Error
-          ? e.message
-          : "Failed to pin job description to IPFS";
+            ? e.message
+            : "Failed to pin job description to IPFS";
       pushToast(msg, "error");
       return;
     }
@@ -163,7 +145,7 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
 
     // 2. Submit the tx.
     try {
-      const txHash = await postJobMut.mutateAsync({
+      await postJobMut.mutateAsync({
         clientAddress,
         arbitratorAddress: arbitratorAddress.trim(),
         jobCid,
@@ -171,8 +153,7 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
         budgetAda: budgetNum,
       });
       // 3. Navigate to marketplace where the new job will appear after
-      //    Preview confirms (~30s). useTx already pushed the success toast.
-      console.log("Posted job, tx:", txHash);
+      //    the tx confirms (~30s). useTx already pushed the success toast.
       navigate("/app/marketplace");
     } catch {
       // useTx already shows an error toast; keep the form filled so the
@@ -260,6 +241,14 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
               placeholder="100"
               disabled={submitting}
             />
+            {budgetNum > 100 && env.network === "Mainnet" && (
+              <div className="mt-2 flex items-start gap-2 p-2 bg-danger-soft border border-[oklch(0.72_0.17_25/0.35)] rounded-md text-[11.5px] text-danger leading-relaxed">
+                <Icons.lock className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                <span>
+                  Large amount on mainnet: ₳{budgetNum.toLocaleString()}. Double-check the number before posting — funds lock immediately in escrow.
+                </span>
+              </div>
+            )}
           </Field>
           <Field
             label="Delivery (days)"
@@ -325,7 +314,7 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
           </div>
         </Field>
 
-        {/* Arbitrator — team-only, no free entry */}
+        {/* Arbitrator - team-only, no free entry */}
         <Field label="Arbitrator" error={arbitratorError}>
           {env.arbitratorAddresses.length === 0 ? (
             <div className="p-3 bg-bg-2 border border-border rounded-md text-[12px] text-danger leading-relaxed">
@@ -339,11 +328,10 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
                 {env.arbitratorAddresses.map((addr) => (
                   <label
                     key={addr}
-                    className={`flex items-start gap-2.5 p-2.5 rounded-md border cursor-pointer transition-colors ${
-                      arbitratorAddress === addr
-                        ? "border-accent bg-bg-2"
-                        : "border-border hover:bg-bg-2"
-                    }`}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-md border cursor-pointer transition-colors ${arbitratorAddress === addr
+                      ? "border-accent bg-bg-2"
+                      : "border-border hover:bg-bg-2"
+                      }`}
                   >
                     <input
                       type="radio"
@@ -449,9 +437,7 @@ function PostJobForm({ clientAddress }: { clientAddress: string }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Field helpers
-// ────────────────────────────────────────────────────────────────────────
 
 function Field({
   label,

@@ -1,29 +1,10 @@
-/**
- * On-chain type mirrors.
- *
- * These types match the Aiken contract datums byte-for-byte after CBOR
- * decoding. Use these for any data that came from the chain or is about
- * to be put on the chain. For UI-friendly types, see ./domain.ts.
- *
- * Conventions:
- *   - Addresses are bech32 strings (addr1..., addr_test1...).
- *   - All ADA amounts are bigints in lovelace (1 ADA = 1_000_000 lovelace).
- *   - Timestamps are bigints in POSIX milliseconds.
- *   - Aiken's Option<T> maps to T | null.
- *   - ByteArrays from chain are decoded to either:
- *       - utf8 strings when semantically text (category, IPFS CID)
- *       - hex strings when opaque bytes (script hashes, tx ids)
- */
+// On-chain type mirrors.
 
-// ────────────────────────────────────────────────────────────────────────
 // Status
-// ────────────────────────────────────────────────────────────────────────
 
 export type OnchainStatus = "Open" | "Selected" | "Submitted" | "Disputed";
 
-// ────────────────────────────────────────────────────────────────────────
 // Escrow datum
-// ────────────────────────────────────────────────────────────────────────
 
 export interface OnchainEscrowDatum {
   /** Bech32 address of the client who posted the job. */
@@ -63,9 +44,7 @@ export interface OnchainEscrowDatum {
   status: OnchainStatus;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Reputation datum
-// ────────────────────────────────────────────────────────────────────────
 
 export interface OnchainReputationDatum {
   builderAddress: string;
@@ -82,13 +61,11 @@ export interface OnchainReputationDatum {
   recentJobCids: string[];
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Profile datum
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Self-attested profile UTxO. One per wallet, lazily created the first
- * time a user saves a profile. Independent from reputation — anyone can
+ * time a user saves a profile. Independent from reputation - anyone can
  * have a profile from day one.
  *
  * The profile content (display name, bio, avatar) lives off-chain on
@@ -101,9 +78,7 @@ export interface OnchainProfileDatum {
   profileCid: string;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Global config (admin reference UTxO)
-// ────────────────────────────────────────────────────────────────────────
 
 export interface OnchainGlobalConfig {
   treasuryAddress: string;
@@ -115,9 +90,7 @@ export interface OnchainGlobalConfig {
   disputeFeeLovelace: bigint;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // UTxO envelope
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * A typed UTxO carrying a decoded datum. Wraps the bare Lucid UTxO with

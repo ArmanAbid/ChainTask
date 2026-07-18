@@ -27,7 +27,7 @@ pub type Status {
 
 /// Full escrow datum. Capped at 256 bytes to defend against ex-units griefing.
 ///
-/// Field-level immutability is enforced per redeemer in escrow.ak — only the
+/// Field-level immutability is enforced per redeemer in escrow.ak - only the
 /// fields explicitly listed for a given action may change between input and
 /// output datum.
 pub type EscrowDatum {
@@ -76,6 +76,9 @@ pub type EscrowRedeemer {
   AutoRelease
   AutoRefund
   ArbitratorTimeout
+  /// Client cancels an Open job before any builder is selected.
+  /// Full amount refunded to client. No fees, no reputation change.
+  CancelOpen
 }
 
 /// Builder reputation, stored as a single UTxO per builder address.

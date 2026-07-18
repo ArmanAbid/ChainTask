@@ -1,17 +1,5 @@
-/**
- * AppShell — the chrome around all authenticated app routes.
- *
- * Desktop (≥ md): sidebar always visible at 232px, main content fills the rest.
- * Mobile  (< md): sidebar collapsed by default. Hamburger in the topbar
- *                 toggles a drawer that overlays the main content. Tapping
- *                 a nav item or the backdrop closes the drawer.
- *
- * Behaviour:
- *   - Sidebar nav reflects current role (client/builder/arbitrator).
- *   - Role switcher lives inside the wallet dropdown.
- *   - Unconnected users get redirected to landing (after the screenshot
- *     verification — restore the redirect by uncommenting the effect below).
- */
+// AppShell - sidebar + main content. Desktop keeps the sidebar visible;
+// mobile collapses it to a drawer behind the hamburger.
 
 import { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate, useLocation, Link } from "react-router-dom";
@@ -50,9 +38,7 @@ export default function AppShell() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Topbar
-// ────────────────────────────────────────────────────────────────────────
 
 function Topbar({ onMenuClick, navOpen }: { onMenuClick: () => void; navOpen: boolean }) {
   return (
@@ -154,9 +140,7 @@ function WalletPill() {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Sidebar
-// ────────────────────────────────────────────────────────────────────────
 
 function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => void }) {
   const { role } = useRole();

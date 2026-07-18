@@ -1,13 +1,4 @@
-/**
- * IPFS via Pinata.
- *
- * Pin: uploads to Pinata's pinning service, returns the CID.
- * Fetch: reads from a public IPFS gateway (default: Pinata's).
- *
- * The Pinata JWT is exposed to the browser bundle, which is a known
- * trade-off for hackathon-scale apps. For production, route pins through
- * a serverless function that holds the JWT.
- */
+// IPFS via Pinata.
 
 import { env } from "@/config/env";
 
@@ -18,11 +9,11 @@ export interface JobDescription {
   skills: string[];
   /**
    * Off-chain delivery timeline in days, set by the client at post time
-   * as a soft commitment to builders. Not enforced on chain — the
+   * as a soft commitment to builders. Not enforced on chain - the
    * on-chain auto_release / auto_refund deadlines are protocol-level
    * safety nets unrelated to this field. Client and builder can later
    * renegotiate by pinning amended job descriptions and mutually
-   * acknowledging (future W10 feature).
+   * acknowledging (future earlier feature).
    */
   deadlineDays?: number;
   attachments?: { name: string; cid: string }[];
@@ -36,7 +27,7 @@ export interface JobDescription {
  * proposals for a job by querying Pinata's /data/pinList endpoint
  * filtered on these keyvalues. Anyone running their own Pinata account
  * (or any IPFS pinning service that exposes a similar listing API) can
- * see the same set of proposals — the chain is not the source of truth
+ * see the same set of proposals - the chain is not the source of truth
  * for proposals, but the data is fully public.
  *
  * The proposal contains no bid amount: the job budget is set by the
@@ -102,9 +93,9 @@ export async function pinJson<T>(
   const pinataMetadata =
     opts.name || opts.keyvalues
       ? {
-          ...(opts.name ? { name: opts.name } : {}),
-          ...(opts.keyvalues ? { keyvalues: opts.keyvalues } : {}),
-        }
+        ...(opts.name ? { name: opts.name } : {}),
+        ...(opts.keyvalues ? { keyvalues: opts.keyvalues } : {}),
+      }
       : undefined;
   const res = await fetch(`${PINATA_API}/pinning/pinJSONToIPFS`, {
     method: "POST",
@@ -147,14 +138,41 @@ export async function pinFile(file: File): Promise<string> {
 
 /**
  * Fetch pinned JSON by CID via the gateway.
+ *
+ * Uses a localStorage cache keyed by CID. Since CIDs are content-hashed,
+ * the same CID always resolves to identical bytes, so the cache is safe
+ * to keep indefinitely. Cuts down on Pinata rate-limit hits and speeds
+ * up marketplace repeat visits from 2-5s to instant.
+ *
+ * If localStorage isn't available (e.g. Safari private mode with
+ * quota=0) we silently fall through to the network path.
  */
 export async function fetchJson<T>(cid: string): Promise<T> {
+  // Try cache first.
+  const cacheKey = `chaintask:ipfs:${cid}`;
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) return JSON.parse(cached) as T;
+  } catch {
+    // Storage disabled or unavailable - fall through.
+  }
+
   const url = `${env.pinataGateway.replace(/\/$/, "")}/${cid}`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new IpfsError(`Fetch failed (${res.status}) for CID ${cid}`);
   }
-  return (await res.json()) as T;
+  const raw = await res.text();
+
+  // Write to cache. If storage is full or unavailable, drop silently -
+  // the value is still returned to the caller.
+  try {
+    localStorage.setItem(cacheKey, raw);
+  } catch {
+    // Ignore.
+  }
+
+  return JSON.parse(raw) as T;
 }
 
 /** Generic gateway URL for direct browser viewing. */
@@ -162,14 +180,12 @@ export function gatewayUrl(cid: string): string {
   return `${env.pinataGateway.replace(/\/$/, "")}/${cid}`;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // CID validation
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Loose-but-useful CID format check.
  *
- * Validates the structural shape — character set, length window — without
+ * Validates the structural shape - character set, length window - without
  * pulling in a full multihash decoder. Catches the common failure modes
  * (typos, copy-paste with surrounding whitespace, markdown link
  * fragments) before they hit the chain.
@@ -182,7 +198,7 @@ export function isValidCid(input: string): boolean {
   if (!input) return false;
   const s = input.trim();
   // CIDv0: starts with "Qm", 46 chars, base58 alphabet.
-  // Bitcoin's base58 (no 0/O/I/l) — safe approximation.
+  // Bitcoin's base58 (no 0/O/I/l) - safe approximation.
   if (/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(s)) return true;
   // CIDv1: starts with "b" (base32 multibase prefix) + base32 lowercase.
   // Length varies with hash + codec; window 50–100 catches sane values.
@@ -200,13 +216,11 @@ export function cidByteLength(cid: string): number {
   return new TextEncoder().encode(cid).length;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Pin-by-CID (for client-side persistence of submissions)
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Pin an existing CID by reference (not file upload). Used when a client
- * wants to ensure a builder's submission stays available — they pin the
+ * wants to ensure a builder's submission stays available - they pin the
  * builder's CID under their own Pinata account so it doesn't depend on
  * the builder's pin staying alive.
  *
@@ -234,9 +248,7 @@ export async function pinByHash(cid: string): Promise<boolean> {
   return true;
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Folder listings (for multi-file submissions)
-// ────────────────────────────────────────────────────────────────────────
 
 export interface IpfsDirEntry {
   name: string;
@@ -281,15 +293,13 @@ export async function listFolder(cid: string): Promise<IpfsDirEntry[] | null> {
   }
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Off-chain proposals
-// ────────────────────────────────────────────────────────────────────────
 
 const PROPOSAL_TYPE = "proposal";
 
 /**
  * Pin a Proposal to IPFS. The Pinata metadata makes it queryable later
- * via listProposals(jobId) — that's how clients see who applied.
+ * via listProposals(jobId) - that's how clients see who applied.
  */
 export async function pinProposal(p: Proposal): Promise<string> {
   return pinJson(p, {
@@ -312,7 +322,7 @@ export async function pinProposal(p: Proposal): Promise<string> {
  * Trust note: this implementation lists only pins on the connected
  * Pinata account's JWT. For a fully decentralized "anyone can see all
  * proposals" property you'd query multiple pinning services or run
- * your own IPFS node. Acceptable trade-off for hackathon — bidder
+ * your own IPFS node. Acceptable trade-off for now - bidder
  * spam is bounded by Pinata's free-tier quotas.
  */
 export async function listProposals(

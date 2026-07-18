@@ -2,7 +2,7 @@
 ////
 //// Each test constructs a small mock Transaction and EscrowDatum, passes it through the per-branch validator, and asserts True/False. Both happy paths and the most important rejection cases are covered.
 ////
-//// Unit-level — these don't simulate a full Cardano tx end to end.
+//// Unit-level - these don't simulate a full Cardano tx end to end.
 //// Integration tests come in Week 5 against the testnet.
 
 use aiken/interval
@@ -269,7 +269,7 @@ test update_rejected_when_category_too_long() {
   let old = fresh_open_datum()
   let new_cid = #"516d6e657763"
   let new_amount = 75_000_000
-  // 17-byte category — over the 16-byte cap.
+  // 17-byte category - over the 16-byte cap.
   let oversized: ByteArray = "abcdefghijklmnopq"
   let new =
     EscrowDatum {
@@ -439,7 +439,7 @@ test submit_rejected_when_status_is_open() {
 
 test submit_rejected_when_cid_mismatched() {
   // Builder claims one CID in the redeemer but writes a different one to the
-  // datum. Must fail — otherwise the submission_cid on chain wouldn't
+  // datum. Must fail - otherwise the submission_cid on chain wouldn't
   // necessarily match what the client agreed to review.
   let old =
     EscrowDatum {
@@ -460,7 +460,7 @@ test submit_rejected_when_cid_mismatched() {
 }
 
 test submit_rejected_when_submission_cid_none() {
-  // Builder must actually set the CID — None is not a valid submission.
+  // Builder must actually set the CID - None is not a valid submission.
   let old =
     EscrowDatum {
       ..fresh_open_datum(),
@@ -533,7 +533,7 @@ test amend_rejected_when_signed_by_client() {
 
 test amend_rejected_when_status_is_open() {
   // Can't Amend before there's a submission to amend.
-  // (Old datum has builder but still Open — could happen if someone
+  // (Old datum has builder but still Open - could happen if someone
   // mis-issues a redeemer; validator must reject on state.)
   let old =
     EscrowDatum { ..fresh_open_datum(), builder_address: Some(builder_addr()) }
@@ -549,7 +549,7 @@ test amend_rejected_when_status_is_open() {
 }
 
 test amend_rejected_when_status_is_selected() {
-  // Selected but not yet Submitted — should use Submit, not Amend.
+  // Selected but not yet Submitted - should use Submit, not Amend.
   let old =
     EscrowDatum {
       ..fresh_open_datum(),
@@ -599,7 +599,7 @@ test amend_rejected_when_output_cid_mismatches_redeemer() {
 }
 
 test amend_rejected_when_submitted_at_not_advanced() {
-  // submitted_at must strictly advance — otherwise builder could submit
+  // submitted_at must strictly advance - otherwise builder could submit
   // garbage at day 13 and Amend at day 13 to the same time, robbing the
   // client of meaningful review time.
   let old = submitted_datum()
@@ -687,7 +687,7 @@ test amend_sequence_two_amends_still_valid() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Release tests — these now validate the platform-fee split is enforced.
+// Release tests - these now validate the platform-fee split is enforced.
 // ───────────────────────────────────────────────────────────────────────────
 
 test release_happy_path() {
@@ -714,7 +714,10 @@ test release_happy_path() {
   validate_release(tx, old, cfg)
 }
 
-test release_rejected_with_only_client_sig() {
+test release_ok_with_only_client_sig() {
+  // Release is now client-only. Builder's signature is no longer required.
+  // The state machine (status == Submitted) + locked builder_address in
+  // the datum are sufficient to protect the builder.
   let old =
     EscrowDatum {
       ..fresh_open_datum(),
@@ -733,7 +736,7 @@ test release_rejected_with_only_client_sig() {
       ],
       [client_vkh],
     )
-  !validate_release(tx, old, mock_config())
+  validate_release(tx, old, mock_config())
 }
 
 test release_rejected_when_skipping_treasury() {
@@ -847,7 +850,7 @@ test release_min_floor_kicks_in_for_small_jobs() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Refund tests — no platform fee, full amount returns to client.
+// Refund tests - no platform fee, full amount returns to client.
 // ───────────────────────────────────────────────────────────────────────────
 
 test refund_happy_path_from_selected() {
@@ -1109,7 +1112,7 @@ test dispute_rejected_when_no_signatures() {
       dispute_raised_at: Some(1_700_003_000_000),
       dispute_evidence_cid: Some(evidence_cid_a),
     }
-  // Tx has no signers — should reject.
+  // Tx has no signers - should reject.
   let tx =
     mk_tx(
       old,
@@ -1276,7 +1279,7 @@ test resolve_rejected_when_status_not_disputed() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// AutoRelease tests — validity-range time logic
+// AutoRelease tests - validity-range time logic
 // ───────────────────────────────────────────────────────────────────────────
 
 test auto_release_happy_path_after_deadline() {
@@ -1318,7 +1321,7 @@ test auto_release_rejected_before_deadline() {
       status: Submitted,
     }
   let cfg = mock_config()
-  // Tx validity is before the deadline — must reject.
+  // Tx validity is before the deadline - must reject.
   let tx =
     mk_tx_with_validity(
       old,

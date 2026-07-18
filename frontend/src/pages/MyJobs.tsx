@@ -1,18 +1,4 @@
-/**
- * MyJobs — jobs the connected wallet is involved in.
- *
- * Two tabs: "As client" and "As builder". Each shows a filterable list of
- * jobs where the wallet is that party. Status filter pill toggles across
- * all lifecycle states (All, Open, Selected, Submitted, Disputed, plus
- * a "Completed" bucket meaning "you're the client of a job whose
- * escrow UTxO has been spent" — but since spent UTxOs don't come back
- * from utxosAt, we detect these by their absence from the current fetch).
- *
- * All data is real:
- *   - useJobs() reads escrow UTxOs from the escrow script address
- *   - Filter to jobs where wallet is client or builder
- *   - Status derives from EscrowDatum.status field
- */
+// MyJobs - client/builder tabs with a status filter.
 
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -41,26 +27,24 @@ export default function MyJobs() {
   const [tab, setTab] = useState<SideTab>("client");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
 
-  if (w.status !== "connected") {
-    return (
-      <div className="max-w-[720px] mx-auto px-8 py-12">
-        <EmptyState
-          icon={<Icons.wallet className="w-5 h-5" />}
-          title="Connect a wallet"
-          description="Connect your Cardano wallet to see the jobs you're part of."
-        />
-      </div>
-    );
-  }
-
-  const myAddress = w.address;
+  // All hooks must run on every render, so derive `myAddress` and the
+  // memoized filters up here BEFORE any early-return branch. When the
+  // wallet is disconnected, `myAddress` is undefined and the filters
+  // just return empty arrays - harmless work.
+  const myAddress = w.status === "connected" ? w.address : undefined;
 
   const asClient = useMemo(
-    () => allJobs.filter((j) => j.clientAddress === myAddress),
+    () =>
+      myAddress
+        ? allJobs.filter((j) => j.clientAddress === myAddress)
+        : [],
     [allJobs, myAddress],
   );
   const asBuilder = useMemo(
-    () => allJobs.filter((j) => j.builderAddress === myAddress),
+    () =>
+      myAddress
+        ? allJobs.filter((j) => j.builderAddress === myAddress)
+        : [],
     [allJobs, myAddress],
   );
 
@@ -72,6 +56,19 @@ export default function MyJobs() {
         : current.filter((j) => j.status === statusFilter),
     [current, statusFilter],
   );
+
+  // Now safe to early-return: every hook above ran unconditionally.
+  if (w.status !== "connected") {
+    return (
+      <div className="max-w-[720px] mx-auto px-8 py-12">
+        <EmptyState
+          icon={<Icons.wallet className="w-5 h-5" />}
+          title="Connect a wallet"
+          description="Connect your Cardano wallet to see the jobs you're part of."
+        />
+      </div>
+    );
+  }
 
   const statusCount = (s: StatusFilter): number =>
     s === "All"
@@ -109,8 +106,8 @@ export default function MyJobs() {
             setStatusFilter("All");
           }}
           className={`px-3 py-1.5 rounded-[5px] text-[12.5px] transition-colors ${tab === "client"
-              ? "bg-surface-2 text-text"
-              : "text-text-dim hover:text-text"
+            ? "bg-surface-2 text-text"
+            : "text-text-dim hover:text-text"
             }`}
         >
           As client{" "}
@@ -123,8 +120,8 @@ export default function MyJobs() {
             setStatusFilter("All");
           }}
           className={`px-3 py-1.5 rounded-[5px] text-[12.5px] transition-colors ${tab === "builder"
-              ? "bg-surface-2 text-text"
-              : "text-text-dim hover:text-text"
+            ? "bg-surface-2 text-text"
+            : "text-text-dim hover:text-text"
             }`}
         >
           As builder{" "}
@@ -142,8 +139,8 @@ export default function MyJobs() {
               type="button"
               onClick={() => setStatusFilter(s)}
               className={`px-2.5 py-1.5 rounded-md text-[12.5px] border transition-colors ${statusFilter === s
-                  ? "bg-surface-2 text-text border-border-strong"
-                  : "bg-surface text-text-dim border-border hover:text-text"
+                ? "bg-surface-2 text-text border-border-strong"
+                : "bg-surface text-text-dim border-border hover:text-text"
                 }`}
             >
               {s} <span className="text-text-faint ml-0.5">{count}</span>

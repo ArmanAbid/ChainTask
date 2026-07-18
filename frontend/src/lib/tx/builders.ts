@@ -1,22 +1,5 @@
-/**
- * Tx builders for the Week 7 happy-path flows.
- *
- * Each function takes the inputs it needs, builds a transaction, has
- * the connected wallet sign it, submits it, and returns the tx hash.
- * Callers (the UI screens) wrap these in TanStack `useMutation` for
- * pending/success/error UX.
- *
- * Conventions:
- *   - Times are POSIX ms (Date.now() compatible).
- *   - Addresses are bech32 strings; we convert to/from Plutus Address inside.
- *   - All Lucid `complete()` calls await wallet signing then submit.
- *
- * Out of scope for W7 (lands in W8): the other 8 redeemers (refund,
- * dispute, resolve, amend, builderWithdraw, autoRelease, autoRefund,
- * arbitratorTimeout) and the reputation cross-validator increment on
- * Release. The Release call below is single-validator only; the
- * reputation hook gets wired when we ship the W8 batch.
- */
+// tx builders. one function per redeemer; each returns the tx hash on
+// submit. addresses in/out are bech32, converted to plutus.Address inside.
 
 import { Data, paymentCredentialOf } from "@lucid-evolution/lucid";
 import type { LucidEvolution, UTxO } from "@lucid-evolution/lucid";
@@ -43,9 +26,7 @@ import {
   reputationAddress,
 } from "./scripts";
 
-// ────────────────────────────────────────────────────────────────────────
 // Helpers
-// ────────────────────────────────────────────────────────────────────────
 
 function adaToLovelace(ada: number): bigint {
   return BigInt(Math.round(ada * 1_000_000));
@@ -77,7 +58,6 @@ async function findEscrowUtxo(
   return utxos[0];
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Reputation helpers
 //
 // The reputation validator enforces that any spend of a builder's
@@ -94,10 +74,67 @@ async function findEscrowUtxo(
 //
 // Minimum lovelace held by a reputation UTxO. Datum is ~256 bytes; 2 ADA
 // is safe under Cardano's min-utxo formula.
-// ────────────────────────────────────────────────────────────────────────
 
 const REPUTATION_UTXO_LOVELACE = 2_000_000n;
 const MAX_RECENT_JOBS = 10;
+
+/**
+ * Locate the GlobalConfig reference UTxO.
+ *
+ * Strategy:
+ *   1. Prefer the outref stored in env (VITE_GLOBAL_CONFIG_OUTREF).
+ *      This is the canonical pointer written by deploy.mjs.
+ *   2. If that misses, scan all UTxOs holding the admin NFT. deploy.mjs
+ *      is meant to be idempotent but does mint a fresh admin NFT on
+ *      each run, so multiple copies of the asset may coexist. We pick
+ *      the one with an inline datum that decodes as GlobalConfig (which
+ *      the "current" reference input needs).
+ *   3. Give up with a helpful message otherwise.
+ *
+ * Note on unit lookup: `lucid.utxoByUnit(unit)` assumes the asset has
+ * quantity 1 across the ledger. When the admin NFT has been minted
+ * multiple times (see deploy.mjs history) it behaves unpredictably, so
+ * we don't rely on it.
+ */
+async function findGlobalConfigUtxo(lucid: LucidEvolution) {
+  // Strategy 1: env-declared outref.
+  if (env.globalConfigOutRef) {
+    const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
+    try {
+      const gcUtxos = await lucid.utxosByOutRef([
+        { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
+      ]);
+      if (gcUtxos.length > 0) return gcUtxos[0];
+    } catch {
+      // fall through to unit scan
+    }
+  }
+
+  // Strategy 2: scan all admin-NFT-holding UTxOs, pick one with an
+  // inline datum. If deploy.mjs minted multiple NFTs across attempts,
+  // any UTxO carrying a GlobalConfig datum is equally valid as a
+  // reference input.
+  const policy = env.adminPolicyId;
+  const name = env.adminAssetName;
+  if (policy && name) {
+    try {
+      const candidates = await lucid.utxosAtWithUnit(
+        env.treasuryAddress ?? "",
+        policy + name,
+      );
+      const withDatum = candidates.find((u) => u.datum);
+      if (withDatum) return withDatum;
+    } catch {
+      // fall through
+    }
+  }
+
+  throw new Error(
+    "GlobalConfig UTxO not found on chain. Verify VITE_ADMIN_POLICY_ID, " +
+    "VITE_ADMIN_ASSET_NAME, and VITE_GLOBAL_CONFIG_OUTREF in your env " +
+    "match the deployed contracts.",
+  );
+}
 
 /**
  * Find a builder's reputation UTxO at the reputation script address.
@@ -121,7 +158,7 @@ async function findReputationUtxo(
         return { utxo: u, datum: d };
       }
     } catch {
-      // Skip undecodable datums — they're not ours.
+      // Skip undecodable datums - they're not ours.
       continue;
     }
   }
@@ -199,9 +236,7 @@ function initialRepDatumOnDispute(
   };
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // postJob
-// ────────────────────────────────────────────────────────────────────────
 
 export interface PostJobInput {
   clientAddress: string;
@@ -214,7 +249,7 @@ export interface PostJobInput {
 /**
  * Create a new escrow UTxO.
  *
- * Plutus V3 doesn't require a redeemer to *create* a UTxO — only to
+ * Plutus V3 doesn't require a redeemer to *create* a UTxO - only to
  * spend one. So posting a job is a simple "pay to script" with the
  * datum attached inline. The escrow validator runs only when this UTxO
  * is later consumed (Select / Refund / etc.).
@@ -261,9 +296,7 @@ export async function postJob(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // selectBuilder
-// ────────────────────────────────────────────────────────────────────────
 
 export interface SelectBuilderInput {
   jobId: string; // "txHash#index"
@@ -323,9 +356,7 @@ export async function selectBuilder(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // submit
-// ────────────────────────────────────────────────────────────────────────
 
 export interface SubmitWorkInput {
   jobId: string;
@@ -382,19 +413,24 @@ export async function submitWork(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // release
-// ────────────────────────────────────────────────────────────────────────
 
 export interface ReleaseInput {
   jobId: string;
+  /**
+   * When true, don't submit - return the CBOR hex of the partially-signed
+   * tx so the other required party (builder) can co-sign and submit.
+   * When false or unset, the connected wallet must have both required
+   * signatures (works if it's a multi-account wallet with both keys).
+   */
+  cosignMode?: boolean;
 }
 
 /**
  * Client approves the submission. Spends the escrow UTxO and pays out
  * to the builder (minus the platform cut to the treasury).
  *
- * NOTE for W8: this version does NOT also increment the builder's
+ * NOTE for earlier: this version does NOT also increment the builder's
  * reputation UTxO. The reputation cross-validator increment lands in
  * the next release.
  *
@@ -451,27 +487,15 @@ export async function release(
   const redeemer = Data.to("Release", EscrowRedeemer);
 
   const clientCred = paymentCredentialOf(await lucid.wallet().address());
-  const builderCredHash = builderPaymentHex;
 
-  if (!env.globalConfigOutRef) {
-    throw new Error(
-      "GlobalConfig out-ref not configured (VITE_GLOBAL_CONFIG_OUTREF). Required to release.",
-    );
-  }
-  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
-  const gcUtxos = await lucid.utxosByOutRef([
-    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
-  ]);
-  if (gcUtxos.length === 0) {
-    throw new Error("GlobalConfig reference UTxO not found on chain.");
-  }
+  const gcUtxo = await findGlobalConfigUtxo(lucid);
 
   // ── Reputation cross-validator wiring ──
   //
   // The reputation validator requires that an IncrementOnRelease redeemer
   // is paired with an escrow input being spent with Release (or
   // AutoRelease). We satisfy that here. If the builder has no rep UTxO
-  // yet, we just create one and don't spend anything — no rep validator
+  // yet, we just create one and don't spend anything - no rep validator
   // runs in that case.
   const timestamp = nowMs();
   const existingRep = await findReputationUtxo(lucid, builderPaymentHex);
@@ -481,11 +505,17 @@ export async function release(
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
-    .readFrom(gcUtxos)
+    .readFrom([gcUtxo])
     .pay.ToAddress(builderAddr, { lovelace: builderPayout })
     .pay.ToAddress(treasuryBech32, { lovelace: treasuryCut })
-    .addSignerKey(clientCred.hash)
-    .addSignerKey(builderCredHash);
+    // Release is client-only. The contract enforces:
+    //   status == Submitted (builder controls this by submitting)
+    //   funds flow to builder_address locked in datum at Selection
+    //   treasury cut is enforced by validator
+    // No security value in requiring the builder's signature - it was
+    // pure friction. Adding builderCredHash here would force dual-wallet
+    // co-signing for no reason.
+    .addSignerKey(clientCred.hash);
 
   if (existingRep) {
     // Spend + replace the existing reputation UTxO.
@@ -523,7 +553,7 @@ export async function release(
         { lovelace: existingRep.utxo.assets.lovelace ?? REPUTATION_UTXO_LOVELACE },
       );
   } else {
-    // Lazy-create — no rep validator runs because we're not spending one.
+    // Lazy-create - no rep validator runs because we're not spending one.
     const initialRep = initialRepDatumOnRelease(
       builderPlutus,
       amount,
@@ -539,12 +569,11 @@ export async function release(
 
   const tx = await txBuilder.complete();
   const signed = await tx.sign.withWallet().complete();
+  if (input.cosignMode) return signed.toCBOR();
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // updateProfile
-// ────────────────────────────────────────────────────────────────────────
 
 export interface UpdateProfileInput {
   ownerAddress: string;
@@ -567,12 +596,18 @@ export async function updateProfile(
   const validator = getProfileValidator();
   if (!validator) throw new Error("Profile validator not configured");
 
+  if (typeof input.ownerAddress !== "string" || !input.ownerAddress) {
+    throw new Error("ownerAddress must be a bech32 string");
+  }
+  if (typeof input.profileCid !== "string" || !input.profileCid) {
+    throw new Error("profileCid must be an IPFS CID string");
+  }
+
   const newDatum: ProfileDatumT = {
     owner_address: bech32ToAddress(input.ownerAddress),
     profile_cid: stringToHex(input.profileCid),
   };
 
-  // Find existing profile UTxO for this owner, if any.
   const profileScriptAddr = profileAddress();
   const existing: UTxO[] = await lucid.utxosAt(profileScriptAddr);
   const ownerPaymentHex =
@@ -580,9 +615,6 @@ export async function updateProfile(
       ? newDatum.owner_address.payment_credential.VerificationKey[0]
       : newDatum.owner_address.payment_credential.Script[0];
 
-  // Naïve linear scan — fine for the hackathon. Production would index
-  // by owner. Picks the most recent matching UTxO if there are dupes
-  // (which the validator doesn't prevent).
   const mine: UTxO | null =
     existing
       .filter((u) => {
@@ -600,14 +632,11 @@ export async function updateProfile(
       })
       .pop() ?? null;
 
-  // Minimum lovelace to attach to the UTxO — Cardano protocol parameters
-  // require at least ~1.5 ADA per UTxO depending on size.
   const profileUtxoLovelace = 2_000_000n;
 
   if (mine) {
-    // Update path.
     const redeemer = Data.to(
-      { UpdateProfile: { new_profile_cid: stringToHex(input.profileCid) } },
+      { new_profile_cid: stringToHex(input.profileCid) },
       ProfileRedeemer,
     );
     const cred = paymentCredentialOf(await lucid.wallet().address());
@@ -626,7 +655,6 @@ export async function updateProfile(
     return signed.submit();
   }
 
-  // Create path — lazy initial profile. No validator runs.
   const tx = await lucid
     .newTx()
     .pay.ToAddressWithData(
@@ -639,15 +667,15 @@ export async function updateProfile(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// refund — mutual cancellation
+// refund - mutual cancellation
 //
 // Both client + builder sign; status must be Selected or Submitted.
 // Full amount returned to client (no platform fee on mutual cancel).
-// ────────────────────────────────────────────────────────────────────────
 
 export interface RefundInput {
   jobId: string;
+  /** See ReleaseInput.cosignMode. */
+  cosignMode?: boolean;
 }
 
 export async function refund(
@@ -692,15 +720,14 @@ export async function refund(
     .complete();
 
   const signed = await tx.sign.withWallet().complete();
+  if (input.cosignMode) return signed.toCBOR();
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// builderWithdraw — builder leaves a Selected job before submitting
+// builderWithdraw - builder leaves a Selected job before submitting
 //
 // Builder signs alone. Escrow resets to Open (builder_address = null,
 // selected_at = null); funds stay locked at script address.
-// ────────────────────────────────────────────────────────────────────────
 
 export interface BuilderWithdrawInput {
   jobId: string;
@@ -793,12 +820,10 @@ export async function builderWithdraw(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// dispute — either party raises a dispute
+// dispute - either party raises a dispute
 //
 // Raiser signs (client OR builder). Adds dispute fee to the UTxO,
 // pins evidence CID in datum, advances status to Disputed.
-// ────────────────────────────────────────────────────────────────────────
 
 export interface DisputeInput {
   jobId: string;
@@ -851,19 +876,13 @@ export async function dispute(
     EscrowRedeemer,
   );
 
-  if (!env.globalConfigOutRef) {
-    throw new Error("VITE_GLOBAL_CONFIG_OUTREF not set");
-  }
-  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
-  const gcUtxos = await lucid.utxosByOutRef([
-    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
-  ]);
+  const gcUtxo = await findGlobalConfigUtxo(lucid);
 
   const tx = await lucid
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
-    .readFrom(gcUtxos)
+    .readFrom([gcUtxo])
     .pay.ToAddressWithData(
       utxo.address,
       { kind: "inline", value: Data.to(newDatum, EscrowDatum) },
@@ -876,17 +895,17 @@ export async function dispute(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// resolve — arbitrator decides a Disputed job
+// resolve - arbitrator decides a Disputed job
 //
 // Arbitrator + winning party sign. Distributes funds per direction:
 //   releaseToBuilder = true:  builder gets ~95%, treasury gets 5% + dispute fee
 //   releaseToBuilder = false: client gets 100%, treasury gets dispute fee
-// ────────────────────────────────────────────────────────────────────────
 
 export interface ResolveInput {
   jobId: string;
   releaseToBuilder: boolean;
+  /** See ReleaseInput.cosignMode. */
+  cosignMode?: boolean;
 }
 
 export async function resolve(
@@ -937,19 +956,13 @@ export async function resolve(
     EscrowRedeemer,
   );
 
-  if (!env.globalConfigOutRef) {
-    throw new Error("VITE_GLOBAL_CONFIG_OUTREF not set");
-  }
-  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
-  const gcUtxos = await lucid.utxosByOutRef([
-    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
-  ]);
+  const gcUtxo = await findGlobalConfigUtxo(lucid);
 
   let txBuilder = lucid
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
-    .readFrom(gcUtxos)
+    .readFrom([gcUtxo])
     .addSignerKey(arbitratorCredHash);
 
   if (input.releaseToBuilder) {
@@ -1030,16 +1043,15 @@ export async function resolve(
 
   const tx = await txBuilder.complete();
   const signed = await tx.sign.withWallet().complete();
+  if (input.cosignMode) return signed.toCBOR();
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// amendSubmission — builder replaces submission_cid before client releases
+// amendSubmission - builder replaces submission_cid before client releases
 //
 // Contract branch: validate_amend_submission. Status stays Submitted;
 // submitted_at MUST advance strictly forward (resets client review window);
 // submission_cid changes; everything else frozen; builder signs alone.
-// ────────────────────────────────────────────────────────────────────────
 
 export interface AmendSubmissionInput {
   jobId: string;
@@ -1105,14 +1117,12 @@ export async function amendSubmission(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// updateJob — client edits an Open job (title/description/amount/category)
+// updateJob - client edits an Open job (title/description/amount/category)
 //
 // Contract branch: validate_update. Status stays Open; client signs alone.
 // If new_amount > old_amount, client tops up escrow. If new_amount <
 // old_amount, delta returns to client. Everything else frozen except
 // job_cid + amount + category.
-// ────────────────────────────────────────────────────────────────────────
 
 export interface UpdateJobInput {
   jobId: string;
@@ -1137,9 +1147,15 @@ export async function updateJob(
     );
   }
 
+  if (input.newAmountAda < PROTOCOL_PARAMS.minJob) {
+    throw new Error(
+      `Budget must be at least ${PROTOCOL_PARAMS.minJob} ADA (minimum job size).`,
+    );
+  }
+
   const newCidHex = stringToHex(input.newJobCid);
   const newCategoryHex = stringToHex(input.newCategory);
-  const newAmountLovelace = BigInt(Math.floor(input.newAmountAda * 1_000_000));
+  const newAmountLovelace = adaToLovelace(input.newAmountAda);
 
   const newDatum: EscrowDatumT = {
     ...oldDatum,
@@ -1161,10 +1177,17 @@ export async function updateJob(
     EscrowRedeemer,
   );
 
+  // Update reads GlobalConfig to enforce new_amount >= min_job_amount.
+  // Attaching the config UTxO as a reference input satisfies the
+  // contract's `expect Some(config) = find_global_config(tx, admin_policy)`
+  // check on the Update branch. Without this, the validator crashes.
+  const gcUtxo = await findGlobalConfigUtxo(lucid);
+
   const tx = await lucid
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
+    .readFrom([gcUtxo])
     .pay.ToAddressWithData(
       utxo.address,
       { kind: "inline", value: Data.to(newDatum, EscrowDatum) },
@@ -1177,15 +1200,13 @@ export async function updateJob(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// autoRelease — anyone can trigger after auto_release_deadline
+// autoRelease - anyone can trigger after auto_release_deadline
 //
 // Contract branch: validate_auto_release. Status must be Submitted,
 // tx validity range entirely after (submitted_at + auto_release_deadline).
 // Builder signs alone. Same payout as Release. Reputation increments via
 // IncrementOnRelease redeemer (validator accepts both Release and
 // AutoRelease as matching escrow events).
-// ────────────────────────────────────────────────────────────────────────
 
 export interface AutoReleaseInput {
   jobId: string;
@@ -1231,7 +1252,6 @@ export async function autoRelease(
   const builderPayout = amount - treasuryCut;
 
   if (!env.treasuryAddress) throw new Error("Treasury not configured");
-  if (!env.globalConfigOutRef) throw new Error("GlobalConfig not configured");
 
   const builderPlutus = oldDatum.builder_address;
   const builderAddr = addressToBech32(builderPlutus, env.network);
@@ -1243,10 +1263,7 @@ export async function autoRelease(
 
   const redeemer = Data.to("AutoRelease", EscrowRedeemer);
 
-  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
-  const gcUtxos = await lucid.utxosByOutRef([
-    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
-  ]);
+  const gcUtxo = await findGlobalConfigUtxo(lucid);
 
   const timestamp = nowMs();
   const existingRep = await findReputationUtxo(lucid, builderPaymentHex);
@@ -1257,7 +1274,7 @@ export async function autoRelease(
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
-    .readFrom(gcUtxos)
+    .readFrom([gcUtxo])
     .pay.ToAddress(builderAddr, { lovelace: builderPayout })
     .pay.ToAddress(env.treasuryAddress, { lovelace: treasuryCut })
     .addSignerKey(builderPaymentHex)
@@ -1314,13 +1331,11 @@ export async function autoRelease(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// autoRefund — client-only, kicks in if builder never submits
+// autoRefund - client-only, kicks in if builder never submits
 //
 // Contract branch: validate_auto_refund. Status must be Selected,
 // tx validity range entirely after (selected_at + auto_refund_deadline).
 // Client signs alone. Full refund. No treasury cut. No reputation update.
-// ────────────────────────────────────────────────────────────────────────
 
 export interface AutoRefundInput {
   jobId: string;
@@ -1380,14 +1395,12 @@ export async function autoRefund(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// arbitratorTimeout — dispute raiser wins by default if arbitrator silent
+// arbitratorTimeout - dispute raiser wins by default if arbitrator silent
 //
 // Contract branch: validate_arbitrator_timeout. Status must be Disputed,
 // tx validity range entirely after (dispute_raised_at + arbitrator_timeout).
 // Raiser signs alone. Defaults in raiser's favor. Reputation via
 // IncrementDisputeOutcome (won = raiser == builder).
-// ────────────────────────────────────────────────────────────────────────
 
 const ARBITRATOR_TIMEOUT_SECONDS = 14n * 24n * 60n * 60n;
 
@@ -1440,7 +1453,6 @@ export async function arbitratorTimeout(
   const raiserIsBuilder = raiserPaymentHex === builderPaymentHex;
 
   if (!env.treasuryAddress) throw new Error("Treasury not configured");
-  if (!env.globalConfigOutRef) throw new Error("GlobalConfig not configured");
 
   const clientAddr = addressToBech32(oldDatum.client_address, env.network);
   const builderAddr = addressToBech32(builderPlutus, env.network);
@@ -1452,16 +1464,13 @@ export async function arbitratorTimeout(
   const redeemer = Data.to("ArbitratorTimeout", EscrowRedeemer);
   const validFrom = Number(deadlineMs) + 30_000;
 
-  const [gcTxHash, gcIxStr] = env.globalConfigOutRef.split("#");
-  const gcUtxos = await lucid.utxosByOutRef([
-    { txHash: gcTxHash, outputIndex: parseInt(gcIxStr, 10) },
-  ]);
+  const gcUtxo = await findGlobalConfigUtxo(lucid);
 
   let txBuilder = lucid
     .newTx()
     .collectFrom([utxo], redeemer)
     .attach.SpendingValidator(validator)
-    .readFrom(gcUtxos)
+    .readFrom([gcUtxo])
     .addSignerKey(raiserPaymentHex)
     .validFrom(validFrom);
 
@@ -1526,9 +1535,212 @@ export async function arbitratorTimeout(
   return signed.submit();
 }
 
-// ────────────────────────────────────────────────────────────────────────
+// submitCosignedTx - second signer resumes from a partially-signed CBOR
+//
+// The first signer builds + partial-signs the dual-sig tx using
+// cosignMode=true on the relevant builder (release, refund, resolve),
+// which returns the CBOR hex instead of submitting. That hex gets sent
+// off-chain (Discord, email, whatever) to the second required signer,
+// who pastes it here - this function resumes the tx, adds the second
+// witness, and submits.
+//
+// PRIMARY PATH: lucid.fromTx(cborHex) - standard Lucid Evolution 0.4.x
+// API for resuming a partial CBOR into a TxSignBuilder.
+//
+// FALLBACK PATH: if lucid.fromTx doesn't exist (older version), we drop
+// down to CIP-30 signTx(cbor, partialSign=true) which returns just a
+// witness set. We then merge witnesses via CML and submit via the wallet.
+//
+// Chain will accept only if:
+//   - CBOR is well-formed
+//   - Inputs referenced are still unspent
+//   - Second signer's key is one of the required signatures
+//   - All script validators pass
+//
+// Any mismatch (wrong wallet connected, tx too old, stale UTxOs) surfaces
+// as a Lucid or Blockfrost error at submit time.
+
+export async function submitCosignedTx(
+  lucid: LucidEvolution,
+  cborHex: string,
+): Promise<string> {
+  // Trim whitespace/newlines a user might paste in.
+  const clean = cborHex.trim().replace(/\s+/g, "");
+  if (!/^[0-9a-fA-F]+$/.test(clean)) {
+    throw new Error(
+      "Not a valid CBOR hex string. Expected hex characters only.",
+    );
+  }
+  if (clean.length < 100) {
+    throw new Error(
+      "CBOR hex too short — did you paste the whole thing?",
+    );
+  }
+
+  // Try the primary Lucid path first.
+  const anyLucid = lucid as unknown as {
+    fromTx?: (cbor: string) => {
+      sign: {
+        withWallet: () => {
+          complete: () => Promise<{ submit: () => Promise<string> }>;
+        };
+      };
+    };
+  };
+  if (typeof anyLucid.fromTx === "function") {
+    const partial = anyLucid.fromTx(clean);
+    const signed = await partial.sign.withWallet().complete();
+    return signed.submit();
+  }
+
+  // Fallback: use CIP-30 wallet API directly.
+  return submitCosignedViaCip30(lucid, clean);
+}
+
+async function submitCosignedViaCip30(
+  lucid: LucidEvolution,
+  cborHex: string,
+): Promise<string> {
+  // Get the raw CIP-30 wallet API. Lucid Evolution exposes it via
+  // lucid.wallet().api (or similar). We reach for a few common names
+  // and fall back to a clear error if we can't find any.
+  const wallet = lucid.wallet();
+  const anyWallet = wallet as unknown as {
+    api?: unknown;
+    provider?: { api?: unknown };
+  };
+  const cip30 = (anyWallet.api ?? anyWallet.provider?.api) as
+    | {
+      signTx: (cbor: string, partialSign: boolean) => Promise<string>;
+      submitTx: (cbor: string) => Promise<string>;
+    }
+    | undefined;
+
+  if (!cip30) {
+    throw new Error(
+      "Could not access the underlying wallet API for co-signing. Please try updating your wallet extension, or contact ChainTask support with the CBOR hex.",
+    );
+  }
+
+  // Ask wallet to sign the tx partially - returns just the new witness set.
+  const witnessSetHex = await cip30.signTx(cborHex, true);
+
+  // Merge the new witness set into the existing tx via Lucid's CML bindings.
+  // We do this dynamically so the import only fires if the fallback runs.
+  const { CML } = await import("@lucid-evolution/lucid");
+  const anyCML = CML as unknown as {
+    Transaction: {
+      from_cbor_hex: (hex: string) => {
+        body: () => unknown;
+        witness_set: () => {
+          vkeywitnesses: () => { len: () => number; get: (i: number) => unknown } | null;
+          set_vkeywitnesses: (v: unknown) => void;
+        };
+        auxiliary_data: () => unknown;
+        is_valid: () => boolean;
+        to_cbor_hex: () => string;
+      };
+      new: (
+        body: unknown,
+        witnesses: unknown,
+        isValid: boolean,
+        auxiliary: unknown,
+      ) => { to_cbor_hex: () => string };
+    };
+    TransactionWitnessSet: {
+      from_cbor_hex: (hex: string) => {
+        vkeywitnesses: () => { len: () => number; get: (i: number) => unknown } | null;
+      };
+    };
+    VkeywitnessList: { new: () => { add: (v: unknown) => void } };
+  };
+
+  const tx = anyCML.Transaction.from_cbor_hex(cborHex);
+  const newWit = anyCML.TransactionWitnessSet.from_cbor_hex(witnessSetHex);
+  const existingWit = tx.witness_set();
+
+  // Combine the two vkey witness lists.
+  const combined = anyCML.VkeywitnessList.new();
+  const existingVkey = existingWit.vkeywitnesses();
+  if (existingVkey) {
+    for (let i = 0; i < existingVkey.len(); i++) {
+      combined.add(existingVkey.get(i));
+    }
+  }
+  const newVkey = newWit.vkeywitnesses();
+  if (newVkey) {
+    for (let i = 0; i < newVkey.len(); i++) {
+      combined.add(newVkey.get(i));
+    }
+  }
+  existingWit.set_vkeywitnesses(combined);
+
+  // Rebuild + serialize.
+  const finalTx = anyCML.Transaction.new(
+    tx.body(),
+    existingWit,
+    tx.is_valid(),
+    tx.auxiliary_data(),
+  );
+  const finalCbor = finalTx.to_cbor_hex();
+
+  // Submit via wallet.
+  return cip30.submitTx(finalCbor);
+}
+
+// cancelOpen - client cancels an Open job before selection
+//
+// Contract branch: validate_cancel_open. Status must be Open with no
+// builder assigned. Full amount refunded to client. Client signs alone.
+// Closes the "posted a job, no one applied, funds stuck" gap in v1.
+
+export interface CancelOpenInput {
+  jobId: string;
+}
+
+export async function cancelOpen(
+  lucid: LucidEvolution,
+  input: CancelOpenInput,
+): Promise<string> {
+  const validator = getEscrowValidator();
+  if (!validator) throw new Error("Escrow validator not configured");
+
+  const utxo = await findEscrowUtxo(lucid, input.jobId);
+  if (!utxo.datum) throw new Error("Job UTxO has no inline datum");
+  const oldDatum = Data.from<EscrowDatumT>(utxo.datum, EscrowDatum);
+  if (oldDatum.status !== "Open") {
+    throw new Error(
+      `CancelOpen requires Open status; this job is ${oldDatum.status}`,
+    );
+  }
+  if (oldDatum.builder_address !== null) {
+    throw new Error(
+      "Cannot cancel: builder is already selected. Use mutual refund instead.",
+    );
+  }
+
+  const clientAddr = addressToBech32(oldDatum.client_address, env.network);
+  if (!clientAddr) throw new Error("Client address decode failed");
+  const clientPaymentHex =
+    "VerificationKey" in oldDatum.client_address.payment_credential
+      ? oldDatum.client_address.payment_credential.VerificationKey[0]
+      : oldDatum.client_address.payment_credential.Script[0];
+
+  const redeemer = Data.to("CancelOpen", EscrowRedeemer);
+
+  const tx = await lucid
+    .newTx()
+    .collectFrom([utxo], redeemer)
+    .attach.SpendingValidator(validator)
+    .pay.ToAddress(clientAddr, { lovelace: oldDatum.amount_lovelace })
+    .addSignerKey(clientPaymentHex)
+    .complete();
+
+  const signed = await tx.sign.withWallet().complete();
+  return signed.submit();
+}
+
 // Helpers
-// ────────────────────────────────────────────────────────────────────────
 
 /**
  * Convert a UTF-8 string to lowercase hex. Used for ByteArray fields

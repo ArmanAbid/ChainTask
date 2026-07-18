@@ -1,12 +1,4 @@
-/**
- * useRole — the current role "lens" the user is acting as.
- *
- * Role is purely a UI concept; on chain, the same wallet can be client,
- * builder, or arbitrator depending on which UTxO it's interacting with.
- * The role just decides which sidebar / dashboard copy the user sees.
- *
- * Persisted to localStorage so the user's preferred lens survives refreshes.
- */
+// useRole - the current role "lens" the user is acting as.
 
 import { useMemo, useSyncExternalStore } from "react";
 import type { Role } from "@/types/domain";

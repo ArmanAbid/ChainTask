@@ -1,12 +1,4 @@
-/**
- * useWallet — convenience hook exposing the wallet state ChainTask uses.
- *
- * Wraps Weld's reactive store and adds a network-correctness check. The
- * return value is memoized: when nothing changed since the last render,
- * the same object reference comes back. This keeps consumers safe from
- * accidental useEffect re-fires when they include the wallet object in
- * a dependency array.
- */
+// useWallet - convenience hook exposing the wallet state ChainTask uses.
 
 import { useMemo } from "react";
 import { useWallet as useWeldWallet } from "@ada-anvil/weld/react";

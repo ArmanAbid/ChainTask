@@ -107,7 +107,7 @@ test update_profile_rejected_when_not_signed_by_owner() {
 }
 
 test update_profile_rejected_when_owner_changed() {
-  // Owner address must stay pinned — an attacker who somehow got the
+  // Owner address must stay pinned - an attacker who somehow got the
   // owner's signature on a tx shouldn't be able to "transfer ownership".
   let old = fresh_profile()
   let new =
@@ -128,7 +128,7 @@ test update_profile_rejected_when_output_cid_mismatches_redeemer() {
 }
 
 test update_profile_rejected_when_cid_empty() {
-  // Empty CID is meaningless — fail it explicitly to avoid weird states.
+  // Empty CID is meaningless - fail it explicitly to avoid weird states.
   let old = fresh_profile()
   let new = ProfileDatum { ..old, profile_cid: #"" }
   let tx = mk_tx(old, [continuing_profile_output(new)], [owner_vkh])

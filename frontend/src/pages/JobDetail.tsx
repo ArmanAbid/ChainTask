@@ -1,22 +1,9 @@
-/**
- * JobDetail — full view of a single escrow.
- *
- * Layout (matches design AI's 2-column shape):
- *   - Main column: header, description, submission section, dispute panel
- *   - Side column: parties, timeline, actions
- *
- * Role-aware: shows different actions/panels depending on whether the
- * connected wallet is the client, builder, arbitrator, or just a viewer.
- *
- * All write actions are disabled this week (Week 6 is read-only). The
- * buttons render with tooltips explaining "available in Week 7" so the
- * UX is honest about what's wired.
- */
+// JobDetail - main + side column, actions rendered by role.
 
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useJob, useProfile, useProposals, useReputation } from "@/hooks/useQueries";
-import { useAmendSubmission, useArbitratorTimeout, useAutoRefund, useAutoRelease, useBuilderWithdraw, useDispute, usePinProposal, useRefund, useRelease, useResolve, useSelectBuilder, useSubmitWork, useUpdateJob } from "@/hooks/useTx";
+import { useAmendSubmission, useArbitratorTimeout, useAutoRefund, useAutoRelease, useBuilderWithdraw, useCancelOpen, useDispute, usePinProposal, useRefund, useRelease, useResolve, useSelectBuilder, useSubmitCosignedTx, useSubmitWork, useUpdateJob } from "@/hooks/useTx";
 import { useWallet } from "@/hooks/useWallet";
 import { Ada, Avatar, Cid, Identity, Pill } from "@/components/atoms";
 import { EmptyState } from "@/components/EmptyState";
@@ -30,7 +17,7 @@ import type { Job } from "@/types/domain";
 
 /**
  * The connected wallet's relationship to *this* escrow UTxO.
- * Different from the global `useRole()` lens — that's a UI preference,
+ * Different from the global `useRole()` lens - that's a UI preference,
  * this is computed from on-chain addresses.
  */
 type EscrowRole = "client" | "builder" | "arbitrator" | "viewer";
@@ -245,15 +232,20 @@ function JobDetailContent({ job }: { job: Job }) {
             <CardHeading>Actions</CardHeading>
             <Actions job={job} role={role} />
           </Card>
+
+          {job.status === "Disputed" && (
+            <Card>
+              <CardHeading>Co-sign</CardHeading>
+              <CoSignPasteBox />
+            </Card>
+          )}
         </aside>
       </div>
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Submission panel
-// ────────────────────────────────────────────────────────────────────────
 
 function SubmissionPanel({
   submissionCid,
@@ -391,9 +383,7 @@ function SubmissionPanel({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Dispute panel
-// ────────────────────────────────────────────────────────────────────────
 
 function DisputePanel({
   evidenceCid,
@@ -429,9 +419,7 @@ function DisputePanel({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Side panels
-// ────────────────────────────────────────────────────────────────────────
 
 function Card({ children }: { children: React.ReactNode }) {
   return <div className="card p-5">{children}</div>;
@@ -540,8 +528,9 @@ function Actions({
     return (
       <div className="space-y-2">
         <EditJobButton job={job} />
+        <CancelOpenButton job={job} />
         <div className="text-[11.5px] text-text-faint pt-1.5 leading-relaxed">
-          Open jobs can't be cancelled unilaterally. Once a builder is selected, you and the builder can mutually cancel via refund.
+          You can cancel while no builder is selected. Once selected, cancellation requires mutual refund.
         </div>
       </div>
     );
@@ -583,7 +572,7 @@ function Actions({
       </div>
     );
   }
-  // Dispute raiser waiting on arbitrator — expose ArbitratorTimeout when
+  // Dispute raiser waiting on arbitrator - expose ArbitratorTimeout when
   // the wait exceeds the timeout window (~14 days).
   if (job.status === "Disputed" && role !== "arbitrator") {
     return (
@@ -603,9 +592,7 @@ function Actions({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Helpers
-// ────────────────────────────────────────────────────────────────────────
 
 function SectionHeading({
   icon,
@@ -642,9 +629,7 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// ApplyButton — for viewers (would-be builders) on Open jobs
-// ────────────────────────────────────────────────────────────────────────
+// ApplyButton - for viewers (would-be builders) on Open jobs
 
 function ApplyButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
@@ -772,9 +757,7 @@ function ApplyButton({ job }: { job: Job }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// ProposalsSection — client of an Open job sees applications and picks
-// ────────────────────────────────────────────────────────────────────────
+// ProposalsSection - client of an Open job sees applications and picks
 
 function ProposalsSection({ job }: { job: Job }) {
   const { data: proposals = [], isLoading } = useProposals(job.id);
@@ -836,7 +819,7 @@ function ProposalRow({
         jobId,
         builderAddress: proposal.builderAddress,
       });
-      // Stay on this page — the cache invalidation will repaint as Selected.
+      // Stay on this page - the cache invalidation will repaint as Selected.
     } catch {
       // useSelectBuilder already shows error toast
     }
@@ -908,9 +891,7 @@ function ProposalRow({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// SubmitWorkButton — builder on a Selected job uploads deliverables
-// ────────────────────────────────────────────────────────────────────────
+// SubmitWorkButton - builder on a Selected job uploads deliverables
 
 function SubmitWorkButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
@@ -1032,9 +1013,7 @@ function SubmitWorkButton({ job }: { job: Job }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// ReleaseButton — client on a Submitted job approves payout
-// ────────────────────────────────────────────────────────────────────────
+// ReleaseButton - client on a Submitted job approves payout
 
 function ReleaseButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
@@ -1121,7 +1100,9 @@ function ReleaseButton({ job }: { job: Job }) {
           <div className="flex items-start gap-2 p-2.5 bg-bg-2 border border-border rounded-md text-[12px] text-text-dim">
             <Icons.lock className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
             <span>
-              Both you and the builder sign this transaction. The escrow UTxO is consumed and funds flow out to both addresses.
+              You sign this transaction alone. Once confirmed, the builder
+              receives their payment directly in their wallet — nothing they
+              need to click.
             </span>
           </div>
         </div>
@@ -1130,12 +1111,11 @@ function ReleaseButton({ job }: { job: Job }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// RefundButton — mutual cancellation (Selected or Submitted)
-// ────────────────────────────────────────────────────────────────────────
+// RefundButton - mutual cancellation (Selected or Submitted)
 
 function RefundButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
+  const [cosignHex, setCosignHex] = useState<string | null>(null);
   const refundMut = useRefund();
 
   async function handle() {
@@ -1146,6 +1126,18 @@ function RefundButton({ job }: { job: Job }) {
     } catch {
       // toast handled
     }
+  }
+
+  async function handleGetCosignHex() {
+    if (refundMut.isPending) return;
+    try {
+      const hex = await refundMut.mutateAsync({
+        jobId: job.id,
+        cosignMode: true,
+      });
+      setCosignHex(hex);
+      setOpen(false);
+    } catch { }
   }
 
   return (
@@ -1161,6 +1153,14 @@ function RefundButton({ job }: { job: Job }) {
           <>
             <button className="btn" onClick={() => setOpen(false)} disabled={refundMut.isPending}>
               Cancel
+            </button>
+            <button
+              className="btn"
+              onClick={handleGetCosignHex}
+              disabled={refundMut.isPending}
+              title="Sign now, get hex to send to the other party"
+            >
+              Get co-sign hex
             </button>
             <button
               className="btn btn-danger"
@@ -1179,16 +1179,20 @@ function RefundButton({ job }: { job: Job }) {
         }
       >
         <p className="text-[13px] text-text-dim leading-relaxed m-0">
-          Both you and the other party need to sign this tx. The full ₳{job.budget} returns to the client. No platform fee on mutual cancellation, and no reputation change either way.
+          Both parties need to sign this tx. The full ₳{job.budget} returns to the client. No platform fee on mutual cancellation, and no reputation change either way. Use "Get co-sign hex" if the other party is on a separate wallet.
         </p>
       </Modal>
+      <CoSignHexModal
+        open={cosignHex !== null}
+        onClose={() => setCosignHex(null)}
+        cborHex={cosignHex ?? ""}
+        otherPartyLabel="The other party"
+      />
     </>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// WithdrawButton — builder leaves a Selected job
-// ────────────────────────────────────────────────────────────────────────
+// WithdrawButton - builder leaves a Selected job
 
 function WithdrawButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
@@ -1230,9 +1234,7 @@ function WithdrawButton({ job }: { job: Job }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// DisputeButton — raise a dispute with evidence CID
-// ────────────────────────────────────────────────────────────────────────
+// DisputeButton - raise a dispute with evidence CID
 
 function DisputeButton({
   job,
@@ -1386,9 +1388,7 @@ function DisputeButton({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// ResolveButton — arbitrator decides
-// ────────────────────────────────────────────────────────────────────────
+// ResolveButton - arbitrator decides
 
 function ResolveButton({
   job,
@@ -1398,6 +1398,7 @@ function ResolveButton({
   releaseToBuilder: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [cosignHex, setCosignHex] = useState<string | null>(null);
   const resolveMut = useResolve();
 
   const cutPercent = PROTOCOL_PARAMS.platformCutPercent;
@@ -1412,10 +1413,24 @@ function ResolveButton({
     } catch { }
   }
 
+  async function handleGetCosignHex() {
+    if (resolveMut.isPending) return;
+    try {
+      const hex = await resolveMut.mutateAsync({
+        jobId: job.id,
+        releaseToBuilder,
+        cosignMode: true,
+      });
+      setCosignHex(hex);
+      setOpen(false);
+    } catch { }
+  }
+
   const label = releaseToBuilder ? "Builder wins" : "Client wins";
   const labelLong = releaseToBuilder
     ? "Resolve in favor of builder"
     : "Resolve in favor of client";
+  const winner = releaseToBuilder ? "The builder" : "The client";
 
   return (
     <>
@@ -1433,6 +1448,14 @@ function ResolveButton({
           <>
             <button className="btn" onClick={() => setOpen(false)} disabled={resolveMut.isPending}>
               Cancel
+            </button>
+            <button
+              className="btn"
+              onClick={handleGetCosignHex}
+              disabled={resolveMut.isPending}
+              title={`Sign now, get hex to send to ${winner.toLowerCase()}`}
+            >
+              Get co-sign hex
             </button>
             <button
               className="btn btn-accent"
@@ -1488,18 +1511,22 @@ function ResolveButton({
           <div className="flex items-start gap-2 p-2.5 bg-bg-2 border border-border rounded-md text-[12px] text-text-dim">
             <Icons.lock className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
             <span>
-              You (arbitrator) and the {releaseToBuilder ? "builder" : "client"} both sign this transaction. The escrow UTxO is consumed and funds flow out per the split shown above.
+              You (arbitrator) and the {releaseToBuilder ? "builder" : "client"} both sign this transaction. Use "Confirm resolution" if you have both keys in one wallet, "Get co-sign hex" if you need to send the tx to a separate wallet.
             </span>
           </div>
         </div>
       </Modal>
+      <CoSignHexModal
+        open={cosignHex !== null}
+        onClose={() => setCosignHex(null)}
+        cborHex={cosignHex ?? ""}
+        otherPartyLabel={winner}
+      />
     </>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// AmendSubmissionButton — builder revises submission before client releases
-// ────────────────────────────────────────────────────────────────────────
+// AmendSubmissionButton - builder revises submission before client releases
 
 function AmendSubmissionButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
@@ -1618,9 +1645,7 @@ function AmendSubmissionButton({ job }: { job: Job }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// EditJobButton — client updates an Open job (title/desc/amount/category)
-// ────────────────────────────────────────────────────────────────────────
+// EditJobButton - client updates an Open job (title/desc/amount/category)
 
 function EditJobButton({ job }: { job: Job }) {
   const [open, setOpen] = useState(false);
@@ -1791,13 +1816,11 @@ function EditJobButton({ job }: { job: Job }) {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────
-// Time-based buttons — only enabled after their respective deadlines pass.
+// Time-based buttons - only enabled after their respective deadlines pass.
 //
 // The wired tx builders throw a friendly error if invoked pre-deadline,
 // but we also gate the button visibly so the user sees a countdown
 // rather than trying-and-failing.
-// ────────────────────────────────────────────────────────────────────────
 
 function formatCountdown(msRemaining: bigint): string {
   if (msRemaining <= 0n) return "any moment";
@@ -1998,5 +2021,208 @@ function ArbitratorTimeoutButton({ job }: { job: Job }) {
         </p>
       </Modal>
     </>
+  );
+}
+
+// CancelOpenButton - client cancels an Open job before selection
+
+function CancelOpenButton({ job }: { job: Job }) {
+  const [open, setOpen] = useState(false);
+  const mut = useCancelOpen();
+
+  async function handle() {
+    if (mut.isPending) return;
+    try {
+      await mut.mutateAsync({ jobId: job.id });
+      setOpen(false);
+    } catch { }
+  }
+
+  return (
+    <>
+      <button
+        className="btn btn-danger w-full"
+        onClick={() => setOpen(true)}
+      >
+        Cancel & refund
+      </button>
+      <Modal
+        open={open}
+        onClose={() => !mut.isPending && setOpen(false)}
+        title="Cancel this job"
+        subtitle="Available while no builder is selected"
+        footer={
+          <>
+            <button
+              className="btn"
+              onClick={() => setOpen(false)}
+              disabled={mut.isPending}
+            >
+              Keep it
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={handle}
+              disabled={mut.isPending}
+            >
+              {mut.isPending ? (
+                <>
+                  <span className="tx-spinner" /> Cancelling…
+                </>
+              ) : (
+                <>Cancel & refund</>
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3.5">
+          <p className="text-[13px] text-text-dim leading-relaxed m-0">
+            You'll receive the full ₳{job.budget} back to your wallet. This
+            ends the job — the on-chain escrow UTxO is spent and can't be
+            reopened. Any off-chain proposals will orphan.
+          </p>
+          <div className="flex items-start gap-2 p-2.5 bg-bg-2 border border-border rounded-md text-[12px] text-text-dim">
+            <Icons.lock className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
+            <span>
+              Only works while status is Open with no builder selected. Once a builder is selected, you and the builder must both sign a mutual refund.
+            </span>
+          </div>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+// CoSignPasteBox - second signer submits a partial-signed CBOR
+//
+// Dual-sig redeemers (Release, Refund, Resolve) need both parties to sign
+// the same tx. The first signer produces a partial CBOR (via the button
+// modal's "Get co-sign hex" alternate action), sends it off-chain to the
+// second signer (Discord, email, whatever). The second signer pastes it
+// here and hits Submit - this adds their witness and broadcasts.
+//
+// The CBOR is opaque here - we don't decode/verify it matches the current
+// job. If it doesn't match, Lucid or Cardano itself rejects at submit.
+
+function CoSignPasteBox() {
+  const [cborHex, setCborHex] = useState("");
+  const mut = useSubmitCosignedTx();
+
+  const trimmed = cborHex.trim();
+  const looksLikeHex =
+    trimmed.length >= 100 && /^[0-9a-fA-F\s]+$/.test(trimmed);
+  const valid = looksLikeHex;
+
+  async function handle() {
+    if (!valid || mut.isPending) return;
+    try {
+      await mut.mutateAsync({ cborHex: trimmed });
+      setCborHex("");
+    } catch {
+      // useSubmitCosignedTx already toasts
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <div className="text-[12px] text-text-dim leading-relaxed">
+        If the other party sent you a co-sign hex for this job, paste it below and submit to complete the transaction.
+      </div>
+      <textarea
+        className="textarea font-mono text-[10.5px] leading-tight"
+        rows={5}
+        placeholder="Paste CBOR hex here (starts with 84a…)"
+        value={cborHex}
+        onChange={(e) => setCborHex(e.target.value)}
+        disabled={mut.isPending}
+        spellCheck={false}
+      />
+      {trimmed.length > 0 && !looksLikeHex && (
+        <div className="text-[11px] text-danger">
+          Not a valid hex string. Expected 100+ hex characters.
+        </div>
+      )}
+      {looksLikeHex && (
+        <div className="flex items-start gap-2 p-2 bg-bg-2 border border-border rounded-md text-[11.5px] text-text-dim leading-relaxed">
+          <Icons.lock className="w-3 h-3 text-accent flex-shrink-0 mt-0.5" />
+          <span>
+            Your wallet extension will show the full tx contents before you sign. Verify the amounts and recipients there — don't rely on the paste field.
+          </span>
+        </div>
+      )}
+      <button
+        className="btn btn-accent w-full"
+        onClick={handle}
+        disabled={!valid || mut.isPending}
+      >
+        {mut.isPending ? (
+          <>
+            <span className="tx-spinner" /> Submitting…
+          </>
+        ) : (
+          "Sign & submit co-signed tx"
+        )}
+      </button>
+    </div>
+  );
+}
+
+// CoSignHexModal - shown after "Get co-sign hex" alt action produces CBOR
+//
+// Displays the CBOR the first signer just produced, with a Copy button.
+// First signer sends this hex to the second signer off-chain.
+
+function CoSignHexModal({
+  open,
+  onClose,
+  cborHex,
+  otherPartyLabel,
+}: {
+  open: boolean;
+  onClose: () => void;
+  cborHex: string;
+  otherPartyLabel: string;
+}) {
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(cborHex);
+      pushToast("Copied co-sign hex", "success");
+    } catch {
+      pushToast("Copy failed — long-press to select", "error");
+    }
+  }
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Send this to the other party"
+      subtitle={`${otherPartyLabel} pastes it into their Co-sign box to complete the tx`}
+      size="lg"
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Close
+          </button>
+          <button className="btn btn-accent" onClick={copy}>
+            <Icons.copy className="w-3.5 h-3.5" /> Copy hex
+          </button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3.5">
+        <div className="card p-3 bg-bg-2 border border-border max-h-[240px] overflow-auto">
+          <div className="font-mono text-[10.5px] break-all leading-tight text-text-dim">
+            {cborHex}
+          </div>
+        </div>
+        <div className="flex items-start gap-2 p-2.5 bg-bg-2 border border-border rounded-md text-[12px] text-text-dim">
+          <Icons.lock className="w-3.5 h-3.5 text-accent flex-shrink-0 mt-0.5" />
+          <span>
+            You've already signed with your key. The other party pastes this hex into their Co-sign box on this job, signs with their key, and the tx goes on chain. Nothing happens until they do — funds stay locked at the escrow address.
+          </span>
+        </div>
+      </div>
+    </Modal>
   );
 }

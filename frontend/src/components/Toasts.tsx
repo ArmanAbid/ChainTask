@@ -1,10 +1,4 @@
-/**
- * Toasts — lightweight notification system.
- *
- * Module-level pub/sub: components call `pushToast()` directly without
- * needing React context. The visible <Toasts /> component subscribes via
- * useSyncExternalStore. No Redux dependency.
- */
+// Toasts - lightweight notification system.
 
 import { useEffect, useSyncExternalStore } from "react";
 import { Icons } from "./Icons";
@@ -15,9 +9,7 @@ interface Toast {
   variant?: "default" | "success" | "error";
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Store
-// ────────────────────────────────────────────────────────────────────────
 
 let nextId = 1;
 let snapshot: Toast[] = [];
@@ -32,9 +24,7 @@ function notify() {
   for (const l of listeners) l();
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Public API
-// ────────────────────────────────────────────────────────────────────────
 
 export function pushToast(text: string, variant: Toast["variant"] = "default") {
   const id = `t${nextId++}`;
@@ -47,9 +37,7 @@ function popToast(id: string) {
   notify();
 }
 
-// ────────────────────────────────────────────────────────────────────────
 // Component
-// ────────────────────────────────────────────────────────────────────────
 
 export function Toasts() {
   const toasts = useSyncExternalStore(
