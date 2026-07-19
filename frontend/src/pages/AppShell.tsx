@@ -90,6 +90,19 @@ function WalletPill() {
     return <span className="text-[12px] text-text-faint">Not connected</span>;
   }
 
+  // Arbitrator role is only visible to wallets whose address appears in
+  // VITE_ARBITRATOR_ADDRESSES. Everyone else sees Client / Builder only.
+  const isTeamArbitrator = env.arbitratorAddresses.includes(wallet.address);
+  const availableRoles: Role[] = isTeamArbitrator
+    ? ["client", "builder", "arbitrator"]
+    : ["client", "builder"];
+
+  // If the user was persisted as arbitrator but no longer qualifies
+  // (e.g. reconnected as a different wallet), silently reset the role.
+  if (!availableRoles.includes(role)) {
+    setRole("client");
+  }
+
   return (
     <div className="relative" data-wallet-pill>
       <button
@@ -112,7 +125,7 @@ function WalletPill() {
             </div>
             <div className="p-1.5 border-b border-border">
               <div className="text-[10.5px] uppercase tracking-wider text-text-faint px-2 py-1">View as</div>
-              {(["client", "builder", "arbitrator"] as Role[]).map((r) => (
+              {availableRoles.map((r) => (
                 <button
                   key={r}
                   role="menuitem"
@@ -155,9 +168,8 @@ function Sidebar({ mobileOpen, onClose }: { mobileOpen: boolean; onClose: () => 
         />
       )}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-30 w-[232px] md:w-auto bg-[oklch(0.15_0.008_250/0.95)] md:bg-[oklch(0.15_0.008_250/0.6)] backdrop-blur-md border-r border-border p-1.5 flex flex-col overflow-y-auto transition-transform md:transition-none ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        }`}
+        className={`fixed md:static inset-y-0 left-0 z-30 w-[232px] md:w-auto bg-[oklch(0.15_0.008_250/0.95)] md:bg-[oklch(0.15_0.008_250/0.6)] backdrop-blur-md border-r border-border p-1.5 flex flex-col overflow-y-auto transition-transform md:transition-none ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+          }`}
       >
         {/* Spacer for topbar height on mobile (since fixed positioning) */}
         <div className="h-[56px] md:hidden" />
@@ -215,8 +227,7 @@ function Item({ to, icon, label, exact }: { to: string; icon: React.ReactNode; l
       to={to}
       end={exact}
       className={({ isActive }) =>
-        `flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-normal border transition-colors ${
-          isActive ? "bg-surface text-text border-border shadow-s1" : "bg-transparent text-text-dim border-transparent hover:bg-surface hover:text-text"
+        `flex items-center gap-2.5 px-2.5 py-2 rounded-md text-[13.5px] font-normal border transition-colors ${isActive ? "bg-surface text-text border-border shadow-s1" : "bg-transparent text-text-dim border-transparent hover:bg-surface hover:text-text"
         }`
       }
     >

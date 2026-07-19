@@ -86,26 +86,40 @@ function ConnectModal({
         </div>
       ) : (
         <div className="space-y-1.5">
-          {installed.map((ext) => (
-            <button
-              key={ext.info.key}
-              className="w-full flex items-center justify-between px-3 py-2.5 bg-bg-2 hover:bg-surface-2 border border-border hover:border-border-strong rounded-md transition-colors"
-              onClick={() => onPick(ext.info.key)}
-            >
-              <div className="flex items-center gap-3">
-                <img
-                  src={ext.info.icon}
-                  alt=""
-                  className="w-7 h-7 rounded-md"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.visibility = "hidden";
-                  }}
-                />
-                <span className="text-[13.5px] font-medium">{ext.info.displayName}</span>
-              </div>
-              <span className="text-[11px] text-accent">Connect</span>
-            </button>
-          ))}
+          {(() => {
+            // Some wallets (Vespr in particular) register themselves under
+            // multiple slots on window.cardano for compatibility with
+            // dapps that only whitelist Lace/Nami. Weld surfaces each
+            // slot as a separate entry, so users see "Lace" listed twice.
+            // Dedupe by displayName so each wallet appears once.
+            const seen = new Set<string>();
+            const unique = installed.filter((ext) => {
+              const name = ext.info.displayName.toLowerCase();
+              if (seen.has(name)) return false;
+              seen.add(name);
+              return true;
+            });
+            return unique.map((ext) => (
+              <button
+                key={ext.info.key}
+                className="w-full flex items-center justify-between px-3 py-2.5 bg-bg-2 hover:bg-surface-2 border border-border hover:border-border-strong rounded-md transition-colors"
+                onClick={() => onPick(ext.info.key)}
+              >
+                <div className="flex items-center gap-3">
+                  <img
+                    src={ext.info.icon}
+                    alt=""
+                    className="w-7 h-7 rounded-md"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.visibility = "hidden";
+                    }}
+                  />
+                  <span className="text-[13.5px] font-medium">{ext.info.displayName}</span>
+                </div>
+                <span className="text-[11px] text-accent">Connect</span>
+              </button>
+            ));
+          })()}
         </div>
       )}
       <p className="text-[11.5px] text-text-faint mt-4">

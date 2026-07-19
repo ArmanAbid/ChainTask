@@ -483,16 +483,8 @@ function Summary({
   );
 }
 
-/**
- * The arbitrator must be one of the configured ChainTask team addresses
- * (VITE_ARBITRATOR_ADDRESSES). Anyone-can-arbitrate would defeat the
- * trust model: arbitrators need to be known, reachable, and accountable
- * to the team that operates ChainTask.
- *
- * Also enforces the contract's `client_address != arbitrator_address`
- * rule client-side so the user gets a clear error instead of a Plutus
- * validation failure at submit time.
- */
+// Team-only arbitrator. Also enforces client != arbitrator client-side
+// so the user gets a clear error instead of a Plutus failure.
 function validateArbitrator(
   arbitrator: string,
   client: string,

@@ -63,7 +63,7 @@ const ADMIN_ASSET_NAME = "ChainTaskAdmin";
 
 const GLOBAL_CONFIG = {
   minJobAmountLovelace: 20_000_000n,        // 20 ADA
-  platformCutPercent: 5n,                    // 5%
+  platformCutPercent: 4n,                    // 4%
   disputeFeeLovelace: 15_000_000n,           // 15 ADA
 };
 
