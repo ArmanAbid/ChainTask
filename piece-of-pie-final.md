@@ -43,7 +43,7 @@ Where payment happens: fully on-chain, in ADA on mainnet. The budget locks into 
 
 ## Slide 4: Live Demo
 
-Demo video: 
+Demo video: https://drive.google.com/file/d/1z1yra4LbMUhwH7luZOjCzDQtzgkyUrZ-/view?usp=drive_link
 
 Flow:
 
